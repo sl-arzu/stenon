@@ -52,12 +52,12 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
         // D11: il modello si carica all'avvio dell'app, nel thread worker
         let transcriber =
             match WhisperTranscriber::with_prompt(&model_path, &language, &initial_prompt) {
-            Ok(t) => Some(t),
-            Err(e) => {
-                eprintln!("stenon: modello non caricato ({e}): dettatura non disponibile");
-                None
-            }
-        };
+                Ok(t) => Some(t),
+                Err(e) => {
+                    eprintln!("stenon: modello non caricato ({e}): dettatura non disponibile");
+                    None
+                }
+            };
         let mut capture: Option<Capture> = None;
 
         for cmd in rx {
