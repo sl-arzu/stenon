@@ -4,14 +4,18 @@
 # Percorso del modello Whisper ggml (scaricabile con scripts/fetch-model.sh).
 model_path = "~/.local/share/stenon/models/ggml-base.bin"
 
-# Lingua di trascrizione: codice ISO ("it", "en") o "auto".
-language_mode = "it"
+# Lingua di trascrizione: codice ISO ("it", "en") o "auto" (riconoscimento automatico).
+language_mode = "auto"
 
 # Scorciatoia push-to-talk: tieni premuto mentre parli, rilascia per trascrivere.
 hotkey = "Ctrl+Shift+Space"
 
 # Modalità di inserimento del testo: "type" (simula digitazione) o "clipboard".
 paste_mode = "type"
+
+# Vocabolario personalizzato: nomi propri e termini che Whisper sbaglia spesso,
+# separati da virgola, passati al modello come suggerimento.
+initial_prompt = ""
 
 # Percorso del database SQLite delle note.
 db_path = "~/.local/share/stenon/notes.db"

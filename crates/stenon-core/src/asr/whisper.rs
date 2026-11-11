@@ -8,11 +8,22 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 pub struct WhisperTranscriber {
     ctx: WhisperContext,
     lang: String,
+    initial_prompt: String,
 }
 
 impl WhisperTranscriber {
     /// Carica il modello ggml da `model_path`.
     pub fn new(model_path: &Path, language: &str) -> Result<Self, whisper_rs::WhisperError> {
+        Self::with_prompt(model_path, language, "")
+    }
+
+    /// Come [`new`], con vocabolario personalizzato (nomi propri, termini tecnici)
+    /// passato come prompt iniziale al modello.
+    pub fn with_prompt(
+        model_path: &Path,
+        language: &str,
+        initial_prompt: &str,
+    ) -> Result<Self, whisper_rs::WhisperError> {
         let path_str = model_path.to_str().ok_or_else(|| {
             eprintln!("stenon: percorso modello non valido UTF-8");
             whisper_rs::WhisperError::GenericError(-1)
@@ -21,6 +32,7 @@ impl WhisperTranscriber {
         Ok(Self {
             ctx,
             lang: language.to_string(),
+            initial_prompt: initial_prompt.to_string(),
         })
     }
 
@@ -43,6 +55,9 @@ impl Transcriber for WhisperTranscriber {
         };
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         let _ = params.set_language(Some(&self.lang));
+        if !self.initial_prompt.is_empty() {
+            params.set_initial_prompt(&self.initial_prompt);
+        }
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);

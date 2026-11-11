@@ -46,10 +46,12 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
     let model_path = Config::expand_tilde(&config.model_path);
     let language = config.language_mode.clone();
     let paste_mode = config.paste_mode.clone();
+    let initial_prompt = config.initial_prompt.clone();
 
     std::thread::spawn(move || {
         // D11: il modello si carica all'avvio dell'app, nel thread worker
-        let transcriber = match WhisperTranscriber::new(&model_path, &language) {
+        let transcriber =
+            match WhisperTranscriber::with_prompt(&model_path, &language, &initial_prompt) {
             Ok(t) => Some(t),
             Err(e) => {
                 eprintln!("stenon: modello non caricato ({e}): dettatura non disponibile");

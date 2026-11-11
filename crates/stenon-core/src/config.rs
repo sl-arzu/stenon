@@ -16,6 +16,10 @@ pub struct Config {
     pub language_mode: String,
     /// Modalità di inserimento del testo: "type" (digitazione) o "clipboard".
     pub paste_mode: String,
+    /// Vocabolario personalizzato (nomi propri, termini tecnici) separati da
+    /// virgola, passato al modello come prompt iniziale.
+    #[serde(default)]
+    pub initial_prompt: String,
 }
 
 impl Default for Config {
@@ -26,6 +30,7 @@ impl Default for Config {
             db_path: "~/Library/Application Support/Stenon/notes.db".to_string(),
             language_mode: "auto".to_string(),
             paste_mode: "type".to_string(),
+            initial_prompt: String::new(),
         }
     }
 }
