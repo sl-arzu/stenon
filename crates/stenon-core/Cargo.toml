@@ -1,0 +1,20 @@
+[package]
+name = "stenon-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Core headless di Stenon: capture audio, ASR, storage SQLite"
+
+[dependencies]
+cpal = "0.15"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+uuid = { version = "1", features = ["v4"] }
+
+whisper-rs = { version = "0.13", optional = true }
+
+[features]
+default = []
+# Implementazione ASR locale con whisper.cpp
+whisper = ["dep:whisper-rs"]

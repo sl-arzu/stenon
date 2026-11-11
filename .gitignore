@@ -1,0 +1,6 @@
+/target
+Cargo.lock.bak
+config.toml
+*.db
+*.db-journal
+.DS_Store

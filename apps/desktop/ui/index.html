@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <title>Stenon</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; margin: 0; display: flex; height: 100vh; }
+    #lista { width: 260px; border-right: 1px solid #ddd; overflow-y: auto; }
+    #dettaglio { flex: 1; padding: 16px; white-space: pre-wrap; }
+    .nota { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; }
+    .nota:hover { background: #f5f5f5; }
+    .nota button { float: right; }
+  </style>
+</head>
+<body>
+  <div id="lista"></div>
+  <div id="dettaglio">Seleziona una nota</div>
+  <script src="main.js"></script>
+</body>
+</html>
