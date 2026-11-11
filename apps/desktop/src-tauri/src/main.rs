@@ -61,6 +61,7 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
         for cmd in rx {
             match cmd {
                 RecCommand::Start => {
+                    eprintln!("stenon: registrazione avviata");
                     if capture.is_none() {
                         match start_capture() {
                             Ok(c) => capture = Some(c),
@@ -69,6 +70,7 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
                     }
                 }
                 RecCommand::Stop => {
+                    eprintln!("stenon: registrazione fermata, trascrivo...");
                     let Some(cap) = capture.take() else { continue };
                     let (samples, rate, channels) = cap.stop();
                     let pcm = to_mono_16k(&samples, rate, channels);

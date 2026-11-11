@@ -237,10 +237,8 @@ impl Db {
                         })
                     })
                     .ok()?;
-                for r in rows {
-                    if let Ok(sr) = r {
-                        segments.push(sr);
-                    }
+                for sr in rows.flatten() {
+                    segments.push(sr);
                 }
             }
         }

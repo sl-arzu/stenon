@@ -1,16 +1,16 @@
 # Configurazione Stenon — copia in config.toml per usarla.
 # Percorsi con ~ vengono espansi alla home dell'utente.
 
-# Percorso del modello Whisper (ggml/gguf, es. base.it di Whisper.cpp).
-model_path = "~/.local/share/stenon/models/ggml-base-it.bin"
+# Percorso del modello Whisper ggml (scaricabile con scripts/fetch-model.sh).
+model_path = "~/.local/share/stenon/models/ggml-base.bin"
 
 # Lingua di trascrizione: codice ISO ("it", "en") o "auto".
-language = "it"
+language_mode = "it"
 
-# Hotkey push-to-talk (formato: Mod1+Mod2+Tasto).
+# Scorciatoia push-to-talk: tieni premuto mentre parli, rilascia per trascrivere.
 hotkey = "Ctrl+Shift+Space"
 
-# Modalità di incolla: "type" (simula digitazione) o "clipboard" (negli appunti).
+# Modalità di inserimento del testo: "type" (simula digitazione) o "clipboard".
 paste_mode = "type"
 
 # Percorso del database SQLite delle note.

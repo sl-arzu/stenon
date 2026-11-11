@@ -17,10 +17,7 @@ impl WhisperTranscriber {
             eprintln!("stenon: percorso modello non valido UTF-8");
             whisper_rs::WhisperError::GenericError(-1)
         })?;
-        let ctx = WhisperContext::new_with_params(
-            path_str,
-            WhisperContextParameters::default(),
-        )?;
+        let ctx = WhisperContext::new_with_params(path_str, WhisperContextParameters::default())?;
         Ok(Self {
             ctx,
             lang: language.to_string(),
