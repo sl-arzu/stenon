@@ -85,19 +85,18 @@
       <!-- Lingue di trascrizione (reale: parla al backend Whisper; nessuna selezione = tutte) -->
       <div class="lang-picker" id="dictationLangPicker">
         <span class="lang-picker-label">Lingue di trascrizione</span>
-        <div class="lang-picker-chips" id="dictationLangChips" role="group" aria-label="Lingue ammesse per la dettatura">
-          <button type="button" class="lang-chip" data-dlang="it">IT</button>
-          <button type="button" class="lang-chip" data-dlang="en">EN</button>
-          <button type="button" class="lang-chip" data-dlang="fr">FR</button>
-          <button type="button" class="lang-chip" data-dlang="es">ES</button>
-          <button type="button" class="lang-chip" data-dlang="de">DE</button>
-          <button type="button" class="lang-chip" data-dlang="pt">PT</button>
-          <button type="button" class="lang-chip" data-dlang="nl">NL</button>
-          <button type="button" class="lang-chip" data-dlang="ru">RU</button>
-          <button type="button" class="lang-chip" data-dlang="pl">PL</button>
-          <button type="button" class="lang-chip" data-dlang="ja">JA</button>
+        <button type="button" class="lang-picker-toggle" id="dictationLangToggle" aria-expanded="false" aria-controls="dictationLangPanel">
+          <span id="dictationLangSummary">Tutte (rilevamento libero)</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="lang-picker-panel" id="dictationLangPanel" hidden>
+          <input type="search" class="lang-picker-search" id="dictationLangSearch" placeholder="Cerca lingua…" autocomplete="off">
+          <div class="lang-picker-grid" id="dictationLangGrid" role="group" aria-label="Lingue ammesse per la dettatura"></div>
+          <div class="lang-picker-actions">
+            <button type="button" class="lang-picker-action" id="dictationLangAll">Tutte (libere)</button>
+            <button type="button" class="lang-picker-action" id="dictationLangDone">Fatto</button>
+          </div>
         </div>
-        <span class="lang-picker-hint">Nessuna selezione = rilevamento libero tra tutte</span>
       </div>
 
       <!-- PANNELLO STATO A: DETTATURA -->
@@ -236,22 +235,7 @@
           <button type="button" class="btn-link-xs" id="btnResetLangFilter" hidden>Tutte</button>
         </div>
         <div class="lang-chips" id="langFilterChips" role="group" aria-label="Filtra per lingua">
-          <button type="button" class="lang-chip" data-lang="IT" aria-pressed="false">
-            <span class="lang-code">IT</span>
-            <span class="lang-chip-count" data-lang-count="IT">0</span>
-          </button>
-          <button type="button" class="lang-chip" data-lang="EN" aria-pressed="false">
-            <span class="lang-code">EN</span>
-            <span class="lang-chip-count" data-lang-count="EN">0</span>
-          </button>
-          <button type="button" class="lang-chip" data-lang="FR" aria-pressed="false">
-            <span class="lang-code">FR</span>
-            <span class="lang-chip-count" data-lang-count="FR">0</span>
-          </button>
-          <button type="button" class="lang-chip" data-lang="JA" aria-pressed="false">
-            <span class="lang-code">JA</span>
-            <span class="lang-chip-count" data-lang-count="JA">0</span>
-          </button>
+          <!-- i chip si generano dalle lingue realmente presenti nelle note -->
         </div>
       </div>
 

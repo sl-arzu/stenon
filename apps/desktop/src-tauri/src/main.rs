@@ -5,7 +5,7 @@ use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Mutex;
-use stenon_core::asr::{Transcriber, WhisperTranscriber};
+use stenon_core::asr::WhisperTranscriber;
 use stenon_core::audio::{start_capture, to_mono_16k, Capture};
 use stenon_core::config::Config;
 use stenon_core::storage::db::Db;
@@ -117,10 +117,7 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
             match cmd {
                 RecCommand::SetLanguages(langs) => {
                     languages = langs.clone();
-                    language = langs
-                        .first()
-                        .cloned()
-                        .unwrap_or_else(|| "auto".to_string());
+                    language = langs.first().cloned().unwrap_or_else(|| "auto".to_string());
                     eprintln!("stenon: lingue ammesse: {:?}", langs);
                 }
                 RecCommand::Start => {

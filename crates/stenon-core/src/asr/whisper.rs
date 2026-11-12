@@ -98,7 +98,11 @@ impl WhisperTranscriber {
                 lang: lang.to_string(),
             });
         }
-        let avg_prob = if prob_n > 0 { prob_sum / prob_n as f32 } else { 0.0 };
+        let avg_prob = if prob_n > 0 {
+            prob_sum / prob_n as f32
+        } else {
+            0.0
+        };
         Some((out, avg_prob, detected))
     }
 
@@ -153,10 +157,7 @@ impl WhisperTranscriber {
         let mut best: Option<(Vec<Segment>, f32, String)> = None;
         for lang in allowed {
             if let Some((segs, prob, _)) = self.run_pass(pcm, lang) {
-                let better = best
-                    .as_ref()
-                    .map(|(_, bp, _)| prob > *bp)
-                    .unwrap_or(true);
+                let better = best.as_ref().map(|(_, bp, _)| prob > *bp).unwrap_or(true);
                 if better {
                     best = Some((segs, prob, lang.clone()));
                 }

@@ -35,6 +35,23 @@ const TAURI_COMMANDS = {
   SET_LANGUAGES: "set_languages",
 };
 
+// Lingue supportate dal modello (codici whisper) — tutte quelle europee + giapponese.
+// Formato: [codice, nome nativo]
+const DICTATION_LANGUAGES = [
+  ["it", "Italiano"], ["en", "English"], ["fr", "Français"], ["es", "Español"],
+  ["de", "Deutsch"], ["pt", "Português"], ["nl", "Nederlands"], ["sv", "Svenska"],
+  ["da", "Dansk"], ["fi", "Suomi"], ["no", "Norsk"], ["is", "Íslenska"],
+  ["fo", "Føroyskt"], ["ca", "Català"], ["gl", "Galego"], ["eu", "Euskara"],
+  ["oc", "Occitan"], ["br", "Brezhoneg"], ["cy", "Cymraeg"], ["lb", "Lëtzebuergesch"],
+  ["mt", "Malti"], ["la", "Latina"], ["pl", "Polski"], ["cs", "Čeština"],
+  ["sk", "Slovenčina"], ["hu", "Magyar"], ["ro", "Română"], ["bg", "Български"],
+  ["el", "Ελληνικά"], ["hr", "Hrvatski"], ["sr", "Српски"], ["sl", "Slovenščina"],
+  ["bs", "Bosanski"], ["mk", "Македонски"], ["sq", "Shqip"], ["lt", "Lietuvių"],
+  ["lv", "Latviešu"], ["et", "Eesti"], ["uk", "Українська"], ["ru", "Русский"],
+  ["be", "Беларуская"], ["hy", "Հայերեն"], ["ka", "ქართული"], ["az", "Azərbaycan"],
+  ["tr", "Türkçe"], ["ja", "日本語"],
+];
+
 const tauriInvoke =
   window.__TAURI__?.core?.invoke ||
   window.__TAURI__?.invoke ||
@@ -1217,13 +1234,38 @@ function renderSidebarControls() {
   el.tabScopeMeetings.classList.toggle("is-active", state.scope === "meetings");
   el.tabScopePinned.classList.toggle("is-active", state.scope === "pinned");
 
-  ["IT", "EN", "FR", "JA"].forEach((lang) => {
-    const count = state.notes.filter((n) => n.lang === lang).length;
-    const countSpan = document.querySelector(`[data-lang-count="${lang}"]`);
-    if (countSpan) countSpan.textContent = count;
-    const chip = el.langFilterChips.querySelector(`[data-lang="${lang}"]`);
-    if (chip) chip.classList.toggle("is-active", state.selectedLangFilters.has(lang));
-  });
+  // Filtro lingue dinamico: chip solo per le lingue realmente presenti nelle note
+  {
+    const counts = new Map();
+    for (const n of state.notes) {
+      const l = (n.lang || "").toUpperCase();
+      if (l) counts.set(l, (counts.get(l) || 0) + 1);
+    }
+    const langs = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    el.langFilterChips.textContent = "";
+    for (const [lang, count] of langs) {
+      const active = state.selectedLangFilters.has(lang);
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "lang-chip" + (active ? " is-active" : "");
+      chip.dataset.lang = lang;
+      chip.setAttribute("aria-pressed", String(active));
+      const code = document.createElement("span");
+      code.className = "lang-code";
+      code.textContent = lang;
+      const cnt = document.createElement("span");
+      cnt.className = "lang-chip-count";
+      cnt.textContent = count;
+      chip.append(code, cnt);
+      el.langFilterChips.appendChild(chip);
+    }
+    if (!langs.length) {
+      const hint = document.createElement("span");
+      hint.className = "lang-filter-empty";
+      hint.textContent = "Nessuna lingua ancora";
+      el.langFilterChips.appendChild(hint);
+    }
+  }
 
   el.btnResetLangFilter.hidden = state.selectedLangFilters.size === 0;
   el.vocabCountBadge.textContent = state.vocabulary.length;
@@ -2550,26 +2592,94 @@ on('sidebarTagsCloud','click',e=>{const b=e.target.closest('[data-filter-tag]');
 on('newTagInlineInput','keydown',e=>{if(e.key==='Enter'){const t=e.target.value.trim().replace(/^#/,'');if(t){getSelectedNote().manualTags.push(t);e.target.value='';commit();}}});on('detailTagsList','click',e=>{const b=e.target.closest('[data-remove-tag]');if(b){const n=getSelectedNote();for(const k of ['autoTags','manualTags'])n[k]=(n[k]||[]).filter(t=>t!==b.dataset.removeTag);commit();}});on('btnGenerateAutoTags','click',async()=>{const n=getSelectedNote();const result=await callBackend('generate_auto_tags',{note:n,provider:state.settings.llmProvider,model:state.settings.llmModel});n.autoTags=Array.isArray(result)?result:autoTags(n);commit();showToast(tauriInvoke?'Tag aggiornati':'Tag demo estratti con regole locali, senza LLM');});
 on('settingLlmProvider','change',()=>{modelsUI();saveV3();renderV3();});on('settingLlmModel','change',e=>{state.settings.llmModel=e.target.value;state.notes.forEach(n=>n.summaries={});saveV3();renderV3();});
 // Lingue di trascrizione ammesse (reale: comanda il backend Whisper)
-const dictationLangChips = document.getElementById('dictationLangChips');
-if (dictationLangChips) {
-  const syncLangChips = () => {
+// Popover ricercabile: nessuna selezione = rilevamento libero tra tutte.
+const dictationLangPicker = document.getElementById('dictationLangPicker');
+if (dictationLangPicker) {
+  const panel = document.getElementById('dictationLangPanel');
+  const toggleBtn = document.getElementById('dictationLangToggle');
+  const summaryEl = document.getElementById('dictationLangSummary');
+  const grid = document.getElementById('dictationLangGrid');
+  const search = document.getElementById('dictationLangSearch');
+
+  const langSummary = () => {
     const arr = state.settings.dictationLanguages || [];
-    dictationLangChips.querySelectorAll('[data-dlang]').forEach(b => {
-      b.classList.toggle('is-active', arr.includes(b.dataset.dlang));
-      b.setAttribute('aria-pressed', arr.includes(b.dataset.dlang) ? 'true' : 'false');
-    });
+    if (!arr.length) return 'Tutte (rilevamento libero)';
+    if (arr.length === 1) {
+      const d = DICTATION_LANGUAGES.find(([c]) => c === arr[0]);
+      return d ? d[1] : arr[0].toUpperCase();
+    }
+    return `${arr.length} lingue selezionate`;
   };
-  syncLangChips();
-  dictationLangChips.addEventListener('click', (e) => {
+
+  const renderLangGrid = () => {
+    const arr = state.settings.dictationLanguages || [];
+    const q = (search.value || '').trim().toLowerCase();
+    const items = DICTATION_LANGUAGES.filter(([code, name]) =>
+      !q || code.includes(q) || name.toLowerCase().includes(q));
+    grid.textContent = '';
+    if (!items.length) {
+      const empty = document.createElement('span');
+      empty.className = 'lang-picker-empty';
+      empty.textContent = 'Nessuna lingua trovata';
+      grid.appendChild(empty);
+      return;
+    }
+    for (const [code, name] of items) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lang-opt' + (arr.includes(code) ? ' is-active' : '');
+      b.dataset.dlang = code;
+      b.setAttribute('aria-pressed', String(arr.includes(code)));
+      const c = document.createElement('span');
+      c.className = 'lang-opt-code';
+      c.textContent = code.toUpperCase();
+      const n = document.createElement('span');
+      n.className = 'lang-opt-name';
+      n.textContent = name;
+      b.append(c, n);
+      grid.appendChild(b);
+    }
+  };
+
+  const syncLangUI = () => {
+    summaryEl.textContent = langSummary();
+    renderLangGrid();
+  };
+
+  toggleBtn.addEventListener('click', () => {
+    const open = panel.hidden;
+    panel.hidden = !open;
+    toggleBtn.setAttribute('aria-expanded', String(open));
+    if (open) { renderLangGrid(); search.value = ''; search.focus(); }
+  });
+  document.getElementById('dictationLangDone').addEventListener('click', () => {
+    panel.hidden = true;
+    toggleBtn.setAttribute('aria-expanded', 'false');
+  });
+  document.getElementById('dictationLangAll').addEventListener('click', () => {
+    state.settings.dictationLanguages = [];
+    saveV3();
+    syncLangUI();
+    if (REAL_BACKEND) callBackend(TAURI_COMMANDS.SET_LANGUAGES, { langs: [] });
+  });
+  search.addEventListener('input', renderLangGrid);
+  document.addEventListener('click', (e) => {
+    if (!panel.hidden && !dictationLangPicker.contains(e.target)) {
+      panel.hidden = true;
+      toggleBtn.setAttribute('aria-expanded', 'false');
+    }
+  });
+  grid.addEventListener('click', (e) => {
     const b = e.target.closest('[data-dlang]');
     if (!b) return;
     const arr = state.settings.dictationLanguages || (state.settings.dictationLanguages = []);
     const i = arr.indexOf(b.dataset.dlang);
     if (i >= 0) arr.splice(i, 1); else arr.push(b.dataset.dlang);
     saveV3();
-    syncLangChips();
+    syncLangUI();
     if (REAL_BACKEND) callBackend(TAURI_COMMANDS.SET_LANGUAGES, { langs: arr });
   });
+  syncLangUI();
 }
 for(const [id,key] of [['chkAutoGenerateTags','autoGenerateTags'],['chkHighContrast','highContrast'],['chkDyslexiaSpacing','dyslexiaSpacing'],['chkStrongFocus','strongFocus'],['chkEnableSystemTray','trayEnabled']]){ $(id).checked=state.settings[key];on(id,'change',e=>{state.settings[key]=e.target.checked;applyAppearance();saveV3();renderV3();$('trayCustomizationSection').hidden=!state.settings.trayEnabled;if(key==='trayEnabled')callBackend('set_tray_enabled',{enabled:e.target.checked,actions:state.settings.trayActions});});}
 for(const mode of ['light','dark'])for(const key of ['accent','bg','text']){const id='color'+mode[0].toUpperCase()+mode.slice(1)+key[0].toUpperCase()+key.slice(1);$(id).value=state.settings[mode+'Colors'][key];on(id,'input',e=>{state.settings[mode+'Colors'][key]=e.target.value;applyAppearance();saveV3();});}
