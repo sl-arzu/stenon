@@ -168,7 +168,12 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_notes, get_note, delete_note])
+        .invoke_handler(tauri::generate_handler![
+            list_notes,
+            get_note,
+            delete_note,
+            update_note_text
+        ])
         .run(tauri::generate_context!())
         .expect("errore durante l'esecuzione di Stenon");
 }

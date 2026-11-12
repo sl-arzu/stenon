@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Permessi per la finestra principale di Stenon","local":true,"windows":["main"],"permissions":["core:default"]}}

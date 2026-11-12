@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permessi per la finestra principale di Stenon",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
