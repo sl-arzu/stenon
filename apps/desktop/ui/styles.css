@@ -458,6 +458,34 @@ kbd {
   box-shadow: var(--shadow-sm);
 }
 
+.lang-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-hairline);
+}
+.lang-picker-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.lang-picker-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
 .capture-panel { display: flex; flex-direction: column; gap: 8px; }
 
 .status-card {

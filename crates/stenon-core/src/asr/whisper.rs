@@ -39,6 +39,11 @@ impl WhisperTranscriber {
     pub fn language(&self) -> &str {
         &self.lang
     }
+
+    /// Cambia la lingua di trascrizione a runtime ("auto" = rilevamento).
+    pub fn set_language(&mut self, language: &str) {
+        self.lang = language.to_string();
+    }
 }
 
 impl Transcriber for WhisperTranscriber {

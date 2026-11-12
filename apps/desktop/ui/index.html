@@ -82,6 +82,17 @@
         </button>
       </div>
 
+      <!-- Lingua di trascrizione (reale: parla al backend Whisper) -->
+      <div class="lang-picker" id="dictationLangPicker">
+        <label class="lang-picker-label" for="dictationLangSelect">Lingua di trascrizione</label>
+        <select class="lang-picker-select" id="dictationLangSelect">
+          <option value="auto">Rileva automaticamente</option>
+          <option value="it">Italiano</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+        </select>
+      </div>
+
       <!-- PANNELLO STATO A: DETTATURA -->
       <div class="capture-panel" id="dictationCapturePanel">
         <section class="status-card" id="statusCard" aria-live="polite">

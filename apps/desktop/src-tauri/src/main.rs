@@ -15,6 +15,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 enum RecCommand {
     Start,
     Stop,
+    /// Lingua di trascrizione scelta dall'utente ("auto", "it", "en", "ja", ...).
+    SetLanguage(String),
 }
 
 struct AppState {
@@ -41,6 +43,21 @@ fn delete_note(id: String, state: State<AppState>) -> bool {
 #[tauri::command]
 fn update_note_text(id: String, text: String, state: State<AppState>) -> bool {
     state.db.lock().unwrap().update_note_text(&id, &text)
+}
+
+/// Imposta la lingua di trascrizione a runtime ("auto", "it", "en", "ja", ...).
+#[tauri::command]
+fn set_language(lang: String, state: State<AppState>) -> Result<(), String> {
+    let lang = lang.to_lowercase();
+    let ok = lang == "auto"
+        || (lang.len() == 2 && lang.chars().all(|c| c.is_ascii_alphabetic()));
+    if !ok {
+        return Err(format!("lingua non valida: {lang}"));
+    }
+    state
+        .rec_tx
+        .send(RecCommand::SetLanguage(lang))
+        .map_err(|e| format!("worker non raggiungibile: {e}"))
 }
 
 /// Autosave del frontend: riceve l'oggetto nota completo e persiste il testo
@@ -78,7 +95,7 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
 
     std::thread::spawn(move || {
         // D11: il modello si carica all'avvio dell'app, nel thread worker
-        let transcriber =
+        let mut transcriber =
             match WhisperTranscriber::with_prompt(&model_path, &language, &initial_prompt) {
                 Ok(t) => Some(t),
                 Err(e) => {
@@ -86,10 +103,18 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
                     None
                 }
             };
+        let mut language = language;
         let mut capture: Option<Capture> = None;
 
         for cmd in rx {
             match cmd {
+                RecCommand::SetLanguage(lang) => {
+                    language = lang.clone();
+                    if let Some(t) = transcriber.as_mut() {
+                        t.set_language(&lang);
+                    }
+                    eprintln!("stenon: lingua di trascrizione: {lang}");
+                }
                 RecCommand::Start => {
                     eprintln!("stenon: registrazione avviata");
                     if capture.is_none() {
@@ -196,7 +221,8 @@ fn main() {
             get_note,
             delete_note,
             update_note_text,
-            save_note
+            save_note,
+            set_language
         ])
         .run(tauri::generate_context!())
         .expect("errore durante l'esecuzione di Stenon");
