@@ -43,6 +43,29 @@ fn update_note_text(id: String, text: String, state: State<AppState>) -> bool {
     state.db.lock().unwrap().update_note_text(&id, &text)
 }
 
+/// Autosave del frontend: riceve l'oggetto nota completo e persiste il testo
+/// ricostruito dalle passate (Fase A: solo testo; titolo/tag in Fase B).
+#[tauri::command]
+fn save_note(note: serde_json::Value, state: State<AppState>) -> bool {
+    let Some(id) = note.get("id").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    let text = note
+        .get("passes")
+        .and_then(|p| p.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
+        .unwrap_or_default();
+    if text.is_empty() {
+        return false;
+    }
+    state.db.lock().unwrap().update_note_text(id, &text)
+}
+
 /// Avvia il thread worker: possiede il modello Whisper e la cattura audio.
 /// I tipi non-Send (stream cpal, contesto whisper) non attraversano mai thread.
 fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
@@ -172,7 +195,8 @@ fn main() {
             list_notes,
             get_note,
             delete_note,
-            update_note_text
+            update_note_text,
+            save_note
         ])
         .run(tauri::generate_context!())
         .expect("errore durante l'esecuzione di Stenon");
