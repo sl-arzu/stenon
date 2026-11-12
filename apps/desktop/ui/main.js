@@ -133,7 +133,7 @@ async function hydrateNote(id) {
 
 async function loadRealNotes() {
   try {
-    const summaries = await tauri.invoke("list_notes");
+    const summaries = await tauriInvoke("list_notes");
     state.notes = (summaries || []).map(mapSummaryToCard);
     if (state.notes.length) {
       state.selectedNoteId = state.notes[0].id;
