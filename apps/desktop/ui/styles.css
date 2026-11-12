@@ -538,6 +538,16 @@ kbd {
 }
 .lang-opt-code { font-weight: 700; font-size: 0.7rem; min-width: 24px; }
 .lang-opt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lang-opt-count {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+.lang-opt.is-active .lang-opt-count { color: var(--accent-text); }
 .lang-picker-empty { font-size: 0.78rem; color: var(--text-muted); padding: 4px; }
 .lang-picker-actions {
   display: flex;

@@ -108,11 +108,13 @@ impl WhisperTranscriber {
 
     /// Trascrive rispettando l'insieme di lingue ammesse.
     /// - `allowed` vuoto: rilevamento libero tra tutte le lingue.
-    /// - una sola lingua: fissata, nessun rilevamento.
-    /// - più lingue: prima passata libera; se la lingua rilevata non è tra
-    ///   quelle ammesse, riprova con ciascuna e tiene quella con probabilità
-    ///   media dei token più alta.
-    /// Restituisce i segmenti e la lingua effettivamente usata.
+    /// - una sola lingua: fissata, nessun rilevamento, passata unica.
+    /// - più lingue (o libere): l'audio è diviso in blocchi da ~10 s e ogni
+    ///   blocco è trascritto con la propria lingua — così una dettatura che
+    ///   mescola due lingue esce con le due lingue giuste. Se la lingua
+    ///   rilevata di un blocco non è ammessa, il blocco viene ritrascritto
+    ///   con ciascuna lingua ammessa tenendo la più probabile.
+    /// Restituisce i segmenti e la lingua dominante effettivamente usata.
     pub fn transcribe_constrained(
         &mut self,
         pcm: &[f32],
@@ -130,6 +132,44 @@ impl WhisperTranscriber {
             return (segs, allowed[0].clone());
         }
 
+        // Blocchi da 10 s: in whisper la lingua si rileva una sola volta per
+        // passata, quindi per l'alternanza di lingue serve ridividere.
+        const CHUNK_SAMPLES: usize = 160_000; // 10 s a 16 kHz
+        let mut all: Vec<Segment> = Vec::new();
+        let mut lang_score: Vec<(String, usize)> = Vec::new(); // (lingua, caratteri)
+
+        for (ci, chunk) in pcm.chunks(CHUNK_SAMPLES).enumerate() {
+            let offset_ms = (ci * CHUNK_SAMPLES * 1000 / 16_000) as i64;
+            let chunk = trim_silence_edges(chunk);
+            if chunk.is_empty() {
+                continue;
+            }
+            let (segs, used) = self.transcribe_chunk(chunk, allowed);
+            for mut s in segs {
+                s.start_ms += offset_ms;
+                s.end_ms += offset_ms;
+                if !s.text.is_empty() {
+                    let key = s.lang.to_uppercase();
+                    match lang_score.iter_mut().find(|(l, _)| *l == key) {
+                        Some(e) => e.1 += s.text.len(),
+                        None => lang_score.push((key, s.text.len())),
+                    }
+                }
+                all.push(s);
+            }
+        }
+
+        // lingua dominante = quella con più caratteri trascritti
+        lang_score.sort_by(|a, b| b.1.cmp(&a.1));
+        let dominant = lang_score
+            .first()
+            .map(|(l, _)| l.clone())
+            .unwrap_or_else(|| self.lang.clone());
+        (all, dominant)
+    }
+
+    /// Trascrive un blocco: auto prima, poi ritenti sulle lingue ammesse.
+    fn transcribe_chunk(&mut self, pcm: &[f32], allowed: &[String]) -> (Vec<Segment>, String) {
         let auto = self.run_pass(pcm, "auto");
         let detected = auto
             .as_ref()
@@ -168,6 +208,25 @@ impl WhisperTranscriber {
             None => (Vec::new(), self.lang.clone()),
         }
     }
+}
+
+/// Taglia il silenzio iniziale e finale (soglia bassa, finestra di 50 ms):
+/// blocchi più puliti migliorano il rilevamento della lingua.
+fn trim_silence_edges(pcm: &[f32]) -> &[f32] {
+    const THRESHOLD: f32 = 0.002;
+    const WIN: usize = 800; // 50 ms a 16 kHz
+    let loud = |w: &[f32]| w.iter().any(|s| s.abs() > THRESHOLD);
+    let start = (0..pcm.len().saturating_sub(WIN))
+        .step_by(WIN)
+        .find(|&i| loud(&pcm[i..i + WIN]))
+        .unwrap_or(0);
+    let end = (start..pcm.len())
+        .rev()
+        .step_by(WIN)
+        .find(|&i| i + WIN <= pcm.len() && loud(&pcm[i..i + WIN]))
+        .map(|i| i + WIN)
+        .unwrap_or(pcm.len());
+    &pcm[start..end.max(start)]
 }
 
 impl Transcriber for WhisperTranscriber {

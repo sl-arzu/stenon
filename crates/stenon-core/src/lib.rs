@@ -8,7 +8,9 @@
 //! - [`storage`]: persistenza SQLite (note, tracce, segmenti, versioni)
 
 pub mod asr;
+#[path = "audio/mod.rs"]
 pub mod audio;
 pub mod config;
 pub mod pipeline;
+#[path = "storage/mod.rs"]
 pub mod storage;

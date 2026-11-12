@@ -232,10 +232,20 @@
       <div class="sidebar-section">
         <div class="sidebar-section-header">
           <span class="sidebar-section-title">Lingue</span>
-          <button type="button" class="btn-link-xs" id="btnResetLangFilter" hidden>Tutte</button>
         </div>
-        <div class="lang-chips" id="langFilterChips" role="group" aria-label="Filtra per lingua">
-          <!-- i chip si generano dalle lingue realmente presenti nelle note -->
+        <div class="lang-picker" id="langFilterPicker">
+          <button type="button" class="lang-picker-toggle" id="langFilterToggle" aria-expanded="false" aria-controls="langFilterPanel">
+            <span id="langFilterSummary">Tutte</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="lang-picker-panel" id="langFilterPanel" hidden>
+            <input type="search" class="lang-picker-search" id="langFilterSearch" placeholder="Cerca lingua…" autocomplete="off">
+            <div class="lang-picker-grid" id="langFilterGrid" role="group" aria-label="Filtra note per lingua"></div>
+            <div class="lang-picker-actions">
+              <button type="button" class="lang-picker-action" id="btnResetLangFilter">Tutte</button>
+              <button type="button" class="lang-picker-action" id="langFilterDone">Fatto</button>
+            </div>
+          </div>
         </div>
       </div>
 

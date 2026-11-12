@@ -1206,6 +1206,59 @@ async function stopMeetingFlow() {
 /* ==========================================================================
    06. RENDERING SIDEBAR E FONTI AUDIO
    ========================================================================== */
+/* Griglia del popover filtro lingue: tutte le lingue del modello con
+   contatore delle note presenti; in cima il gruppo AUTO (vecchie note
+   salvate prima del selettore lingua, senza classificazione). */
+function renderLangFilterGrid() {
+  const grid = document.getElementById("langFilterGrid");
+  if (!grid) return;
+  const search = document.getElementById("langFilterSearch");
+  const counts = new Map();
+  for (const n of state.notes) {
+    const l = (n.lang || "").toUpperCase();
+    if (l) counts.set(l, (counts.get(l) || 0) + 1);
+  }
+  const q = (search?.value || "").trim().toLowerCase();
+  const makeOpt = (code, name, count) => {
+    const active = state.selectedLangFilters.has(code);
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "lang-opt" + (active ? " is-active" : "");
+    b.dataset.lang = code;
+    b.setAttribute("aria-pressed", String(active));
+    const c = document.createElement("span");
+    c.className = "lang-opt-code";
+    c.textContent = code;
+    const nm = document.createElement("span");
+    nm.className = "lang-opt-name";
+    nm.textContent = name;
+    b.append(c, nm);
+    if (count > 0) {
+      const cnt = document.createElement("span");
+      cnt.className = "lang-opt-count";
+      cnt.textContent = count;
+      b.appendChild(cnt);
+    }
+    return b;
+  };
+  grid.textContent = "";
+  const items = [];
+  const autoCount = counts.get("AUTO") || 0;
+  if (autoCount) items.push(["AUTO", "Non classificate (auto)", autoCount]);
+  for (const [code, name] of DICTATION_LANGUAGES) {
+    items.push([code.toUpperCase(), name, counts.get(code.toUpperCase()) || 0]);
+  }
+  const filtered = items.filter(([code, name]) =>
+    !q || code.toLowerCase().includes(q) || name.toLowerCase().includes(q));
+  for (const [code, name, count] of filtered) grid.appendChild(makeOpt(code, name, count));
+  if (!filtered.length) {
+    const empty = document.createElement("span");
+    empty.className = "lang-picker-empty";
+    empty.textContent = "Nessuna lingua trovata";
+    grid.appendChild(empty);
+  }
+}
+
 function renderSidebarControls() {
   const options = ["AUTO", ...state.settings.activeLanguages];
   if (!options.includes(state.dictationLang)) state.dictationLang = "AUTO";
@@ -1234,40 +1287,16 @@ function renderSidebarControls() {
   el.tabScopeMeetings.classList.toggle("is-active", state.scope === "meetings");
   el.tabScopePinned.classList.toggle("is-active", state.scope === "pinned");
 
-  // Filtro lingue dinamico: chip solo per le lingue realmente presenti nelle note
+  // Filtro lingue: popover ricercabile con tutte le lingue e contatori
   {
-    const counts = new Map();
-    for (const n of state.notes) {
-      const l = (n.lang || "").toUpperCase();
-      if (l) counts.set(l, (counts.get(l) || 0) + 1);
+    const summary = document.getElementById("langFilterSummary");
+    const n = state.selectedLangFilters.size;
+    if (summary) {
+      summary.textContent =
+        n === 0 ? "Tutte" : n === 1 ? [...state.selectedLangFilters][0] : `${n} lingue`;
     }
-    const langs = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    el.langFilterChips.textContent = "";
-    for (const [lang, count] of langs) {
-      const active = state.selectedLangFilters.has(lang);
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "lang-chip" + (active ? " is-active" : "");
-      chip.dataset.lang = lang;
-      chip.setAttribute("aria-pressed", String(active));
-      const code = document.createElement("span");
-      code.className = "lang-code";
-      code.textContent = lang;
-      const cnt = document.createElement("span");
-      cnt.className = "lang-chip-count";
-      cnt.textContent = count;
-      chip.append(code, cnt);
-      el.langFilterChips.appendChild(chip);
-    }
-    if (!langs.length) {
-      const hint = document.createElement("span");
-      hint.className = "lang-filter-empty";
-      hint.textContent = "Nessuna lingua ancora";
-      el.langFilterChips.appendChild(hint);
-    }
+    renderLangFilterGrid();
   }
-
-  el.btnResetLangFilter.hidden = state.selectedLangFilters.size === 0;
   el.vocabCountBadge.textContent = state.vocabulary.length;
   el.footerHotkeyBadge.textContent = state.settings.hotkey;
   el.placeholderHotkey.textContent = state.settings.hotkey;
@@ -2063,15 +2092,41 @@ function bindEvents() {
     });
   });
 
-  el.langFilterChips.addEventListener("click", (e) => {
-    const chip = e.target.closest("[data-lang]");
-    if (!chip) return;
-    const lang = chip.dataset.lang;
-    if (state.selectedLangFilters.has(lang)) state.selectedLangFilters.delete(lang);
-    else state.selectedLangFilters.add(lang);
-    renderSidebarControls();
-    renderNotesList();
-  });
+  // Popover filtro lingue: tutte le lingue del modello, con contatori
+  const langFilterPicker = document.getElementById("langFilterPicker");
+  if (langFilterPicker) {
+    const panel = document.getElementById("langFilterPanel");
+    const toggleBtn = document.getElementById("langFilterToggle");
+    const grid = document.getElementById("langFilterGrid");
+    const search = document.getElementById("langFilterSearch");
+
+    toggleBtn.addEventListener("click", () => {
+      const open = panel.hidden;
+      panel.hidden = !open;
+      toggleBtn.setAttribute("aria-expanded", String(open));
+      if (open) { renderLangFilterGrid(); search.value = ""; search.focus(); }
+    });
+    document.getElementById("langFilterDone").addEventListener("click", () => {
+      panel.hidden = true;
+      toggleBtn.setAttribute("aria-expanded", "false");
+    });
+    search.addEventListener("input", renderLangFilterGrid);
+    document.addEventListener("click", (e) => {
+      if (!panel.hidden && !langFilterPicker.contains(e.target)) {
+        panel.hidden = true;
+        toggleBtn.setAttribute("aria-expanded", "false");
+      }
+    });
+    grid.addEventListener("click", (e) => {
+      const opt = e.target.closest("[data-lang]");
+      if (!opt) return;
+      const lang = opt.dataset.lang;
+      if (state.selectedLangFilters.has(lang)) state.selectedLangFilters.delete(lang);
+      else state.selectedLangFilters.add(lang);
+      renderSidebarControls();
+      renderNotesList();
+    });
+  }
 
   el.btnResetLangFilter.addEventListener("click", () => {
     state.selectedLangFilters.clear();
