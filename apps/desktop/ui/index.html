@@ -1,20 +1,993 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="it" data-theme="system">
 <head>
   <meta charset="UTF-8" />
-  <title>Stenon</title>
-  <style>
-    body { font-family: -apple-system, sans-serif; margin: 0; display: flex; height: 100vh; }
-    #lista { width: 260px; border-right: 1px solid #ddd; overflow-y: auto; }
-    #dettaglio { flex: 1; padding: 16px; white-space: pre-wrap; }
-    .nota { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; }
-    .nota:hover { background: #f5f5f5; }
-    .nota button { float: right; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stenon — Dettatura, Riunioni Multicanale &amp; Note Intelligenti</title>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div id="lista"></div>
-  <div id="dettaglio">Seleziona una nota</div>
-  <script src="main.js"></script>
+  <!-- =========================================================================
+       BARRA DI STATO / SYSTEM TRAY SIMULATA (Visibile SOLO se attivata in Impostazioni!)
+       In Tauri corrisponde a `tauri::tray::TrayIconBuilder` nella barra di sistema OS
+       ========================================================================= -->
+  <div class="system-tray-widget" id="systemTrayWidget" hidden>
+    <button type="button" class="tray-pill-trigger" id="btnTrayTrigger" aria-expanded="false" title="Icona di stato Stenon (accesso rapido)">
+      <span class="tray-status-dot" id="trayStatusDot" aria-hidden="true"></span>
+      <span class="tray-brand-label">Stenon</span>
+      <span class="tray-state-mini" id="trayStateMini">Pronto</span>
+      <span aria-hidden="true">▾</span>
+    </button>
+
+    <div class="tray-popover-menu" id="trayPopoverMenu" role="menu" hidden>
+      <div class="tray-menu-header">
+        <strong>Stenon — Accesso Rapido</strong>
+        <span class="tray-menu-sub" title="Anteprima del menu di stato: icona nativa da integrare in Tauri" id="trayMenuStateLabel">🟢 Pronto</span>
+      </div>
+      <div class="tray-menu-actions" id="trayMenuActions">
+        <!-- Popolato dinamicamente in base alle azioni rapide scelte nelle Impostazioni -->
+      </div>
+      <div class="tray-menu-footer">
+        <button type="button" class="btn-link-xs" id="btnConfigureTray">⚙ Personalizza voci rapide…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       FINESTRA PRINCIPALE STENON A 3 COLONNE
+       data-app-state: "idle" | "recording" | "paused" | "transcribing"
+       ========================================================================= -->
+  <div class="app-shell" id="appShell" data-app-state="idle" data-capture-mode="dictation">
+
+    <!-- =======================================================================
+         1. SIDEBAR (Sinistra)
+         ======================================================================= -->
+    <aside class="sidebar" id="sidebar" aria-label="Stato, modalità e organizzazione Stenon">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-logo" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+              <path d="M8 21h8"/><path d="M12 18v3"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-name">Stenon</span>
+            <span class="brand-sub">Voice · Meetings · Notes</span>
+          </div>
+        </div>
+
+        <div class="sidebar-header-actions">
+          <button type="button" class="icon-btn" id="btnOpenA11yQuick" title="Tema colori e Accessibilità ipovedenti">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20Z" fill="currentColor"/>
+            </svg>
+          </button>
+          <button type="button" class="icon-btn" id="btnToggleSidebar" title="Comprimi barra laterale (⌘\)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Selettore Modalità: Dettatura vs Riunione -->
+      <div class="mode-switcher" role="tablist" aria-label="Modalità Stenon">
+        <button type="button" class="mode-switch-btn is-active" data-mode="dictation" id="btnModeDictation" role="tab" aria-selected="true">
+          ✍️ Dettatura
+        </button>
+        <button type="button" class="mode-switch-btn" data-mode="meeting" id="btnModeMeeting" role="tab" aria-selected="false">
+          👥 Riunione
+        </button>
+      </div>
+
+      <!-- PANNELLO STATO A: DETTATURA -->
+      <div class="capture-panel" id="dictationCapturePanel">
+        <section class="status-card" id="statusCard" aria-live="polite">
+          <div class="status-main-row">
+            <div class="status-indicator-wrap">
+              <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+              <svg class="status-spinner" id="statusSpinner" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.25" stroke-width="3"/>
+                <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              </svg>
+            </div>
+
+            <div class="status-copy">
+              <div class="status-headline">
+                <span class="status-title" id="statusTitle">Pronto</span>
+                <span class="status-timer" id="statusTimer" hidden>0:00</span>
+              </div>
+              <p class="status-subtitle" id="statusSubtitle">Premi <kbd id="statusHotkeyHint">⌥ Space</kbd> ovunque</p>
+            </div>
+
+            <div class="mic-meter" id="micMeter" hidden aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+
+          <div class="status-recording-actions" id="statusRecordingActions" hidden>
+            <button type="button" class="btn-rec-stop" id="btnStopRecording">
+              <span class="stop-square" aria-hidden="true"></span>
+              Fine e trascrivi
+            </button>
+            <button type="button" class="btn-rec-cancel" id="btnCancelRecording">Annulla</button>
+          </div>
+
+          <div class="dictation-lang-bar" title="Lingua per la prossima dettatura">
+            <span class="dictation-lang-label">Input:</span>
+            <div class="dictation-lang-pills" id="dictationLangPills" role="radiogroup" aria-label="Lingua dettatura"></div>
+          </div>
+        </section>
+
+        <div class="new-note-row">
+          <button type="button" class="btn-primary btn-new-note" id="btnNewVoiceNote">
+            <span>＋ Nuova nota</span>
+            <span aria-hidden="true">🎙</span>
+          </button>
+          <button type="button" class="btn-secondary-icon" id="btnNewEmptyNote" title="Crea nota testuale vuota (⌘N)">
+            ✎
+          </button>
+        </div>
+      </div>
+
+      <!-- PANNELLO STATO B: MODALITÀ RIUNIONE (Registra / Pausa / Ferma) -->
+      <div class="capture-panel" id="meetingCapturePanel" hidden>
+        <section class="status-card meeting-console-card" aria-live="polite">
+          <div class="meeting-console-top">
+            <div class="status-indicator-wrap">
+              <span class="status-dot" aria-hidden="true"></span>
+              <svg class="status-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.25" stroke-width="3"/>
+                <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="status-copy">
+              <div class="status-headline">
+                <span class="status-title" id="meetingStatusTitle">Pronto per riunione</span>
+                <span class="status-timer" id="meetingTimer" hidden>0:00</span>
+              </div>
+              <p class="status-subtitle" id="meetingStatusSub">Memoria audio dedicata + chat voci</p>
+            </div>
+          </div>
+
+          <button type="button" class="active-sources-summary" id="btnQuickAudioSources">
+            <span id="activeSourcesSummaryText">🎛 2 fonti attive (Canali separati)</span>
+            <span class="sources-gear">Fonti ▸</span>
+          </button>
+
+          <div class="meeting-live-channels" id="meetingLiveChannels" hidden></div>
+
+          <button type="button" class="btn-meeting-start" id="btnStartMeeting">
+            <span class="rec-circle-icon" aria-hidden="true"></span>
+            <span>Registra riunione</span>
+          </button>
+
+          <div class="meeting-active-controls" id="meetingActiveControls" hidden>
+            <button type="button" class="btn-meeting-pause" id="btnPauseResumeMeeting">
+              <span id="pauseResumeIcon">⏸</span>
+              <span id="pauseResumeLabel">Pausa</span>
+            </button>
+            <button type="button" class="btn-meeting-stop" id="btnStopMeeting">
+              <span class="stop-square" aria-hidden="true"></span>
+              <span>Ferma</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Ricerca globale (testo, tag automatici, allegati, parlanti) -->
+      <div class="search-box">
+        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+        </svg>
+        <input
+          type="search"
+          id="searchInput"
+          class="search-input"
+          placeholder="Cerca testo, #tag, link, voci…"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Cerca nelle conversazioni"
+        />
+        <kbd class="search-kbd" id="searchKbd">⌘F</kbd>
+        <button type="button" class="search-clear" id="btnClearSearch" hidden aria-label="Cancella ricerca">×</button>
+      </div>
+
+      <!-- Vista Rapida -->
+      <div class="scope-tabs scope-tabs-3" role="tablist" aria-label="Filtra tipologia">
+        <button type="button" class="scope-tab is-active" data-scope="all" id="tabScopeAll" role="tab">
+          <span>Tutte</span>
+          <span class="scope-count" id="countAll">0</span>
+        </button>
+        <button type="button" class="scope-tab" data-scope="meetings" id="tabScopeMeetings" role="tab">
+          <span>👥 Riunioni</span>
+          <span class="scope-count" id="countMeetings">0</span>
+        </button>
+        <button type="button" class="scope-tab" data-scope="pinned" id="tabScopePinned" role="tab">
+          <span>📌</span>
+          <span class="scope-count" id="countPinned">0</span>
+        </button>
+      </div>
+
+      <!-- Filtri Lingue -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="sidebar-section-title">Lingue</span>
+          <button type="button" class="btn-link-xs" id="btnResetLangFilter" hidden>Tutte</button>
+        </div>
+        <div class="lang-chips" id="langFilterChips" role="group" aria-label="Filtra per lingua">
+          <button type="button" class="lang-chip" data-lang="IT" aria-pressed="false">
+            <span class="lang-code">IT</span>
+            <span class="lang-chip-count" data-lang-count="IT">0</span>
+          </button>
+          <button type="button" class="lang-chip" data-lang="EN" aria-pressed="false">
+            <span class="lang-code">EN</span>
+            <span class="lang-chip-count" data-lang-count="EN">0</span>
+          </button>
+          <button type="button" class="lang-chip" data-lang="FR" aria-pressed="false">
+            <span class="lang-code">FR</span>
+            <span class="lang-chip-count" data-lang-count="FR">0</span>
+          </button>
+          <button type="button" class="lang-chip" data-lang="JA" aria-pressed="false">
+            <span class="lang-code">JA</span>
+            <span class="lang-chip-count" data-lang-count="JA">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TAG AUTOMATICI PER RIORGANIZZARE E RITROVARE LE CONVERSAZIONI -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="sidebar-section-title">🏷 Tag automatici</span>
+          <button type="button" class="btn-link-xs" id="btnResetTagFilter" hidden>Reset</button>
+        </div>
+        <div class="sidebar-tags-cloud" id="sidebarTagsCloud">
+          <!-- Popolato dinamicamente dai tag estratti nelle note -->
+        </div>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+
+      <!-- Test stato UI -->
+      <div class="demo-state-switcher" id="demoStateSwitcher">
+        <span class="demo-label">Simula stato:</span>
+        <div class="demo-btns">
+          <button type="button" class="demo-btn is-active" data-demo-state="idle" title="Pronto">🟢</button>
+          <button type="button" class="demo-btn" data-demo-state="recording" title="Registrazione">🔴</button>
+          <button type="button" class="demo-btn" data-demo-state="paused" title="Pausa">⏸</button>
+          <button type="button" class="demo-btn" data-demo-state="transcribing" title="Trascrizione">🟡</button>
+        </div>
+      </div>
+
+      <!-- Footer Sidebar -->
+      <div class="sidebar-footer">
+        <button type="button" class="sidebar-nav-btn" id="btnOpenVocab">
+          <span class="nav-btn-left">📚 <span>Vocabolario</span></span>
+          <span class="nav-badge" id="vocabCountBadge">0</span>
+        </button>
+
+        <button type="button" class="sidebar-nav-btn" id="btnOpenAudioVault">
+          <span class="nav-btn-left">🎛 <span>Fonti &amp; Audio</span></span>
+          <span class="nav-badge" id="audioVaultBadge">2 attive</span>
+        </button>
+
+        <button type="button" class="sidebar-nav-btn" id="btnOpenSettings">
+          <span class="nav-btn-left">⚙ <span>Impostazioni</span></span>
+          <kbd class="nav-kbd" id="footerHotkeyBadge">⌥ Space</kbd>
+        </button>
+      </div>
+    </aside>
+
+    <!-- =======================================================================
+         2. LISTA CONVERSAZIONI E NOTE (Centro)
+         ======================================================================= -->
+    <section class="notes-column" aria-label="Elenco note e riunioni">
+      <header class="notes-column-header">
+        <div class="notes-header-left">
+          <button type="button" class="icon-btn btn-expand-sidebar" id="btnExpandSidebar" hidden title="Mostra barra laterale (⌘\)">
+            ☰
+          </button>
+          <h2 class="notes-column-title" id="notesHeaderTitle">Tutte le note</h2>
+          <span class="notes-filtered-pill" id="activeFilterSummary" hidden></span>
+        </div>
+        <span class="notes-shortcut-hint" title="Usa ↑/↓ per navigare e Canc per eliminare">↑↓ · Canc</span>
+      </header>
+
+      <div class="notes-list" id="notesList" role="listbox" tabindex="0" aria-label="Lista conversazioni Stenon"></div>
+
+      <div class="notes-empty" id="notesEmpty" hidden>
+        <div class="empty-icon" aria-hidden="true">🔎</div>
+        <p class="empty-title">Nessuna conversazione trovata</p>
+        <p class="empty-desc">Nessuna nota o riunione corrisponde alla ricerca o ai tag selezionati.</p>
+        <button type="button" class="btn-outline-sm" id="btnClearAllFilters">Mostra tutto</button>
+      </div>
+    </section>
+
+    <!-- =======================================================================
+         3. DETTAGLIO CONVERSAZIONE, PLAYER KARAOKE, RIASSUNTI & ALLEGATI (Destra)
+         ======================================================================= -->
+    <main class="detail-column" id="detailColumn" aria-label="Dettaglio conversazione Stenon">
+      <div class="detail-placeholder" id="detailPlaceholder" hidden>
+        <div class="placeholder-circle" aria-hidden="true">🎙</div>
+        <h3>Seleziona una conversazione o inizia a registrare</h3>
+        <p>Usa <kbd id="placeholderHotkey">⌥ Space</kbd> per dettare in qualsiasi campo sul PC o avvia una <strong>Riunione</strong> multicanale.</p>
+      </div>
+
+      <div class="detail-content-wrap" id="detailContentWrap">
+        <!-- Topbar contestuale -->
+        <div class="detail-topbar">
+          <div class="detail-topbar-left">
+            <span class="kind-pill" id="detailKindPill">✍️ Dettatura</span>
+            <span class="source-pill" id="detailSourcePill">↗ VS Code</span>
+            <span class="model-pill" id="detailModelPill">small · Metal</span>
+            <button type="button" class="llm-active-pill" id="btnQuickLlmBadge" title="Modello LLM usato per analisi, tag e riassunti (clicca per cambiare)">
+              🧠 <span id="activeLlmLabel">qwen2.5:7b</span>
+            </button>
+            <span class="autosave-indicator" id="autosaveIndicator">
+              <span class="autosave-dot" aria-hidden="true"></span>
+              <span id="autosaveText">Salvato</span>
+            </span>
+          </div>
+
+          <div class="detail-topbar-right">
+            <label class="project-tag-box" title="Progetto/Tema per organizzazione e YAML frontmatter RAG">
+              <span class="project-tag-icon">📁</span>
+              <input type="text" id="detailProjectInput" class="project-tag-input" placeholder="progetto…" />
+            </label>
+
+            <div class="font-switcher" role="group" aria-label="Carattere">
+              <button type="button" class="font-switch-btn is-active" data-font="sans">Sans</button>
+              <button type="button" class="font-switch-btn" data-font="mono">Mono</button>
+            </div>
+
+            <button type="button" class="icon-btn" id="btnTogglePinDetail" title="Fissa in alto">📌</button>
+          </div>
+        </div>
+
+        <!-- Header Titolo + Metadati + Tag Automatici -->
+        <header class="detail-header">
+          <div class="detail-title-row">
+            <input
+              type="text"
+              id="detailTitleInput"
+              class="detail-title-input"
+              placeholder="Titolo della nota…"
+              aria-label="Titolo della nota"
+            />
+            <button type="button" class="btn-reset-title" id="btnResetAutoTitle" hidden>Auto-titolo ↺</button>
+          </div>
+
+          <div class="detail-meta-row" id="detailMetaRow">
+            <span class="meta-item" id="metaDate">📅 11 nov 2026, 14:32</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-item" id="metaDuration">⏱ 0:23</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-item meta-lang-badge" id="metaLang">🏷 IT</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-item" id="metaStats">142 caratteri · 21 parole</span>
+          </div>
+
+          <!-- Riga Tag Automatici + Aggiunta manuale -->
+          <div class="detail-tags-bar">
+            <div class="detail-tags-list" id="detailTagsList"></div>
+            <div class="detail-tags-actions">
+              <input type="text" id="newTagInlineInput" class="tag-inline-input" placeholder="+ aggiungi tag…" aria-label="Aggiungi tag" />
+              <button type="button" class="btn-autotag-xs" id="btnGenerateAutoTags" title="Estrai automaticamente tag chiave dal testo e dagli allegati">
+                ✨ Rigenera tag
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <!-- ===================================================================
+             PLAYER AUDIO RIUNIONE CON CURSORE PAROLA (KARAOKE) & AUTO-SCROLL CHAT
+             =================================================================== -->
+        <section class="meeting-Inspector-band" id="meetingInspectorBand" hidden>
+          <div class="meeting-audio-bar">
+            <button type="button" class="audio-skip-btn" id="btnAudioBack5" title="Indietro di 5 secondi">↺ 5s</button>
+            <button type="button" class="audio-play-btn" id="btnAudioPlayPause" title="Riproduci / Pausa audio riunione">
+              <span id="audioPlayIcon">▶</span>
+            </button>
+            <button type="button" class="audio-skip-btn" id="btnAudioFwd5" title="Avanti di 5 secondi">5s ↻</button>
+
+            <div class="audio-timeline-wrap">
+              <div class="audio-time-row">
+                <span class="audio-time-curr" id="audioTimeCurrent">0:00</span>
+                <span class="audio-karaoke-status" id="audioKaraokeStatus">
+                  🎯 Cursore parola &amp; scorrimento chat sincronizzati
+                </span>
+                <span class="audio-time-total" id="audioTimeTotal">03:10</span>
+              </div>
+              <input
+                type="range"
+                id="audioScrubber"
+                class="audio-scrubber"
+                min="0"
+                max="190"
+                step="0.1"
+                value="0"
+                aria-label="Posizione riproduzione audio"
+              />
+            </div>
+
+            <label class="autoscroll-toggle" title="Scorri automaticamente la chat seguendo la parola pronunciata">
+              <input type="checkbox" id="chkAudioAutoScroll" checked />
+              <span>📜 Segui chat</span>
+            </label>
+
+            <select id="audioTrackSelect" class="form-select audio-track-select" aria-label="Traccia audio da ascoltare"></select>
+            <button type="button" class="audio-speed-btn" id="btnAudioSpeed" title="Velocità riproduzione">1x</button>
+          </div>
+
+          <div id="audioVaultPath" class="setting-desc"></div><div class="speakers-strip" id="speakersStrip"></div>
+        </section>
+
+        <!-- ===================================================================
+             BARRA MODALITÀ RIASSUNTO / ANALISI + SCELTA RAPIDA MODELLO LLM
+             =================================================================== -->
+        <section class="summary-modes-bar" aria-label="Modalità di analisi e riassunto">
+          <div class="summary-pills-scroll" id="summaryModePills" role="tablist">
+            <button type="button" class="summary-pill is-active" data-view-mode="original" role="tab">🎙 Originale</button>
+            <button type="button" class="summary-pill" data-view-mode="format_only" role="tab">✨ Solo formattazione</button>
+            <button type="button" class="summary-pill" data-view-mode="lossless" role="tab">🔍 Senza perdita info</button>
+            <button type="button" class="summary-pill" data-view-mode="schematic" role="tab">📋 Schematico</button>
+            <button type="button" class="summary-pill" data-view-mode="meeting_poh" role="tab">📅 Verbale (POH)</button>
+            <button type="button" class="summary-pill" data-view-mode="brainstorming" role="tab">🧠 Brainstorming</button>
+            <button type="button" class="summary-pill" data-view-mode="work_note" role="tab">📓 Nota lavoro</button>
+          </div>
+
+          <div class="summary-options-right">
+            <label class="rag-yaml-toggle" title="Includi frontmatter YAML e frasi autoconclusive per RAG">
+              <input type="checkbox" id="chkIncludeYaml" checked />
+              <span>🤖 YAML</span>
+            </label>
+            <button type="button" class="btn-regenerate-xs" id="btnRegenerateSummary" hidden>↻ Rigenera</button>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             AREA CONTENUTO SCORREVOLE:
+             1. Trascrizione / Chat Karaoke / Riassunto Strutturato
+             2. Contesto Extra non dettato: Immagini, Screenshot, Link, PDF e Note
+             =================================================================== -->
+        <div class="editor-scroll-area" id="editorScrollArea">
+          <!-- 1A. Passate Dettatura -->
+          <div class="passes-editor" id="passesEditor" data-font="sans"></div>
+
+          <!-- 1B. Chat Riunione con evidenziazione parola-per-parola sincronizzata all'audio -->
+          <div class="meeting-chat-timeline" id="meetingChatTimeline" data-font="sans" hidden></div>
+
+          <!-- 1C. Vista Riassunto Strutturato -->
+          <div class="structured-summary-view" id="structuredSummaryView" data-font="sans" hidden>
+            <div class="summary-method-banner" id="summaryMethodBanner"></div>
+            <div class="summary-editable-surface" id="summaryEditableSurface" contenteditable="true" spellcheck="true"></div>
+          </div>
+
+          <!-- =================================================================
+               2. SEZIONE MATERIALI E CONTESTO COLLEGATO (Immagini, PDF, Link, Note extra)
+               ================================================================= -->
+          <section class="attachments-panel" id="attachmentsPanel" aria-label="Immagini, link, PDF e contesto collegato">
+            <div class="attachments-header">
+              <div class="attachments-title-group">
+                <h3 class="attachments-title">📎 Materiali e contesto collegati</h3>
+                <span class="attachments-count-badge" id="attachmentsCountBadge">0 elementi</span>
+                <span class="attachments-hint">Immagini, screenshot (anche con Incolla ⌘V), PDF, link o informazioni non dette a voce</span>
+              </div>
+
+              <div class="attachments-actions">
+                <input type="file" id="imageUploadInput" accept="image/*" multiple hidden />
+                <button type="button" class="btn-attach-sm" id="btnAddImage">🖼 Immagine / Screenshot</button>
+                <button type="button" class="btn-attach-sm" id="btnToggleAddLinkForm">🔗 Link o PDF</button>
+                <button type="button" class="btn-attach-sm" id="btnToggleContextNote">📝 Nota non dettata</button>
+              </div>
+            </div>
+
+            <!-- Form rapido inline per aggiungere Link / Documento / PDF -->
+            <form class="add-link-inline-form" id="addLinkInlineForm" hidden>
+              <select id="attachLinkKind" class="form-select form-input-sm" aria-label="Tipo risorsa">
+                <option value="pdf">📄 Documento PDF</option>
+                <option value="link">🔗 Link Web / Wiki</option>
+                <option value="doc">📁 File locale / Slide</option>
+              </select>
+              <input type="text" id="attachLinkTitle" class="form-input form-input-sm" placeholder="Titolo (es. Preventivo Q1 v2.pdf)" required />
+              <input type="text" id="attachLinkUrl" class="form-input form-input-sm" placeholder="URL o percorso file (es. https://… o /Documenti/…)" required />
+              <button type="submit" class="btn-primary btn-sm">Salva</button>
+              <button type="button" class="btn-outline-sm" id="btnCancelLinkForm">Annulla</button>
+            </form>
+
+            <!-- Campo per informazioni scritte / contesto non pronunciato durante la conversazione -->
+            <div class="extra-context-box" id="extraContextBox" hidden>
+              <label class="extra-context-label" for="extraContextTextarea">
+                📝 Informazioni aggiuntive legate alla conversazione (non dette a voce — incluse anche nei riassunti e RAG):
+              </label>
+              <textarea
+                id="extraContextTextarea"
+                class="extra-context-textarea"
+                rows="3"
+                placeholder="Scrivi qui retroscena, riferimenti, codici, numeri d'ordine o note contestuali non dette durante la dettatura/riunione…"
+              ></textarea>
+            </div>
+
+            <!-- Griglia Miniature Immagini / Screenshot -->
+            <div class="attachments-images-grid" id="attachmentsImagesGrid"></div>
+
+            <!-- Lista Link, PDF e Documenti -->
+            <div class="attachments-links-list" id="attachmentsLinksList"></div>
+          </section>
+
+          <p class="editor-helper-hint">
+            Clicca sul testo per modificarlo · Evidenzia una parola per aggiungerla al <strong>Vocabolario</strong> · Incolla screenshot con <kbd>⌘V</kbd>
+          </p>
+
+          <!-- POPOVER CONTESTUALE SELEZIONE TESTO -->
+          <div class="selection-popover" id="selectionPopover" role="toolbar" aria-label="Azioni sul testo selezionato" hidden>
+            <div class="popover-term-preview" id="popoverTermPreview">“Stenon”</div>
+            <div class="popover-actions">
+              <button type="button" class="popover-btn popover-btn-vocab" id="btnPopoverAddVocab">
+                <span id="popoverVocabIcon">➕</span>
+                <span id="popoverVocabLabel">Aggiungi al vocabolario</span>
+              </button>
+              <span class="popover-divider" aria-hidden="true"></span>
+              <button type="button" class="popover-btn" id="btnPopoverCopy">
+                <span id="popoverCopyIcon">📋</span>
+                <span id="popoverCopyLabel">Copia</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Azioni -->
+        <footer class="detail-footer">
+          <div class="detail-footer-left">
+            <button type="button" class="btn-append-pass" id="btnAppendPass">🎙 Aggiungi dettatura qui</button>
+            <button type="button" class="btn-action" id="btnExportMarkdown">💾 Esporta .md</button>
+          </div>
+
+          <div class="detail-footer-right">
+            <button type="button" class="btn-action" id="btnCopyAll">
+              <span>📋</span>
+              <span id="copyAllLabel">Copia tutto</span>
+            </button>
+
+            <button type="button" class="btn-action btn-action-accent" id="btnReinsert">
+              <span>↩️</span>
+              <span>Reinserisci nel campo</span>
+            </button>
+
+            <div class="inline-delete-wrap" id="detailDeleteWrap">
+              <button type="button" class="btn-action btn-action-danger" id="btnDeleteDetail">🗑 Elimina</button>
+              <div class="inline-confirm-group" id="detailConfirmGroup" hidden>
+                <span class="inline-confirm-label">Eliminare?</span>
+                <button type="button" class="btn-confirm-yes" id="btnConfirmDeleteDetail">Sì, elimina</button>
+                <button type="button" class="btn-confirm-no" id="btnCancelDeleteDetail">No</button>
+              </div>
+            </div>
+          </div>
+        </footer>
+      </div>
+    </main>
+  </div>
+
+  <!-- =========================================================================
+       MODALE LIGHTBOX PER VISUALIZZAZIONE SCREENSHOT E IMMAGINI ALLEGATE
+       ========================================================================= -->
+  <div class="modal-backdrop" id="imageLightboxBackdrop" hidden>
+    <div class="lightbox-panel" role="dialog" aria-modal="true" aria-label="Anteprima immagine allegata">
+      <div class="lightbox-header">
+        <span id="lightboxCaption">Immagine allegata</span>
+        <button type="button" class="modal-close-btn" id="btnCloseLightbox">×</button>
+      </div>
+      <div class="lightbox-body">
+        <img id="lightboxImg" src="" alt="Anteprima ingrandita" />
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODALE VOCABOLARIO (📚)
+       ========================================================================= -->
+  <div class="modal-backdrop" id="vocabModalBackdrop" hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="vocabModalTitle">
+      <header class="modal-header">
+        <div>
+          <h2 class="modal-title" id="vocabModalTitle">📚 Vocabolario Stenon</h2>
+          <p class="modal-subtitle">Questi termini vengono passati al modello vocale come suggerimento.</p>
+        </div>
+        <button type="button" class="modal-close-btn" data-close-modal="vocabModalBackdrop">×</button>
+      </header>
+
+      <div class="modal-body">
+        <form class="vocab-add-form" id="vocabAddForm">
+          <input type="text" id="vocabNewInput" class="form-input" placeholder="Aggiungi termine o sigla (es. Stenon, Tauri, POH)… Invio" autocomplete="off" />
+          <select id="vocabCategorySelect" class="form-select vocab-cat-select">
+            <option value="Tecnici">Tecnici &amp; Dev</option>
+            <option value="Nomi">Nomi &amp; Brand</option>
+            <option value="Acronimi">Sigle &amp; Acronimi</option>
+            <option value="Generale">Generale</option>
+          </select>
+          <button type="button" class="btn-primary" id="btnSubmitVocab">Aggiungi</button>
+        </form>
+
+        <div class="vocab-toolbar">
+          <div class="vocab-search-wrap">
+            <input type="search" id="vocabSearchInput" class="form-input form-input-sm" placeholder="Filtra termini…" />
+          </div>
+          <div class="vocab-token-meter">
+            <span id="vocabStatsLabel">0 termini · ~0/224 token</span>
+            <div class="token-bar-track"><div class="token-bar-fill" id="vocabTokenBar" style="width:0%"></div></div>
+          </div>
+        </div>
+
+        <div class="vocab-groups-container" id="vocabGroupsContainer"></div>
+      </div>
+
+      <footer class="modal-footer">
+        <span class="modal-footer-hint">Suggerimento: evidenzia qualsiasi parola in una nota o chat per aggiungerla rapidamente.</span>
+        <button type="button" class="btn-action" data-close-modal="vocabModalBackdrop">Chiudi</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODALE IMPOSTAZIONI COMPLETO (5 TAB)
+       1. Fonti Audio & Memoria
+       2. Whisper, Voci & LLM
+       3. Tema Colori (Giorno/Notte) & Accessibilità Ipovedenti
+       4. Icona Barra di Stato (System Tray)
+       5. Hotkey & Inserimento
+       ========================================================================= -->
+  <div class="modal-backdrop" id="settingsModalBackdrop" hidden>
+    <div class="modal-panel modal-panel-settings" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+      <header class="modal-header modal-header-with-tabs">
+        <div class="modal-header-top">
+          <div>
+            <h2 class="modal-title" id="settingsModalTitle">⚙ Impostazioni Stenon</h2>
+            <p class="modal-subtitle">Fonti audio, modelli vocali/LLM, temi giorno/notte, accessibilità ipovedenti e barra di stato.</p>
+          </div>
+          <button type="button" class="modal-close-btn" data-close-modal="settingsModalBackdrop">×</button>
+        </div>
+
+        <div class="settings-tabs" role="tablist">
+          <button type="button" class="settings-tab is-active" data-settings-tab="audio" role="tab">🎙 Fonti Audio</button>
+          <button type="button" class="settings-tab" data-settings-tab="models" role="tab">🧠 Modelli &amp; LLM</button>
+          <button type="button" class="settings-tab" data-settings-tab="appearance" role="tab">🎨 Tema &amp; Ipovedenti</button>
+          <button type="button" class="settings-tab" data-settings-tab="tray" role="tab">📌 Icona di Stato</button>
+          <button type="button" class="settings-tab" data-settings-tab="system" role="tab">⌨️ Hotkey &amp; Incolla</button>
+        </div>
+      </header>
+
+      <div class="modal-body">
+        <!-- TAB 1: FONTI AUDIO MULTIPLE & MEMORIA RIUNIONI -->
+        <div class="settings-tab-pane" id="settingsPaneAudio">
+          <div class="settings-callout">
+            <strong>Isolamento multicanale Stenon:</strong> selezionando più fonti audio, ognuna viene registrata su traccia separata per evitare sovrapposizioni tra microfono e sistema. Se più voci provengono dalla stessa fonte, vengono distinte in locale.
+          </div>
+
+          <div class="audio-sources-header">
+            <span class="setting-label">Fonti audio da ascoltare (selezione multipla o disattivazione)</span>
+            <button type="button" class="btn-link-xs" id="btnRefreshSources">↻ Aggiorna periferiche</button>
+          </div>
+
+          <div class="audio-sources-list" id="audioSourcesList"></div>
+
+          <div class="setting-row setting-row-block" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border-hairline);">
+            <div class="setting-info">
+              <span class="setting-label">💾 Memoria dedicata registrazioni riunioni</span>
+              <p class="setting-desc">Cartella locale isolata per tracce multicanale e sincronizzazione cursore parola.</p>
+            </div>
+            <div class="vault-storage-card">
+              <div class="vault-storage-info">
+                <code class="vault-path-code">~/Library/Application Support/Stenon/meeting_audio/</code>
+                <span class="vault-usage-stats">Spazio occupato: <strong>148 MB</strong> · Tracce con timestamp parola attivi</span>
+              </div>
+              <select id="settingAudioRetention" class="form-select form-input-sm">
+                <option value="forever" selected>Conserva sempre l'audio</option>
+                <option value="30d">Elimina audio dopo 30 giorni (tieni testo)</option>
+                <option value="90d">Elimina audio dopo 90 giorni (tieni testo)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: MODELLO WHISPER, VOCI & SCELTA MODELLO LLM -->
+        <div class="settings-tab-pane" id="settingsPaneModels" hidden>
+          <div class="settings-grid">
+            <div class="setting-row">
+              <div class="setting-info">
+                <label class="setting-label" for="settingModel">Modello vocale (Whisper + Word Timestamps)</label>
+                <p class="setting-desc">Include allineamento temporale parola-per-parola per il cursore audio nelle riunioni.</p>
+              </div>
+              <select id="settingModel" class="form-select">
+                <option value="base">base — 142 MB (Ultra rapido)</option>
+                <option value="small" selected>small — 466 MB (Consigliato)</option>
+                <option value="medium">medium — 1.5 GB (Massima precisione)</option>
+              </select>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">Motore hardware</span>
+                <p class="setting-desc">Accelera trascrizione e separazione voci.</p>
+              </div>
+              <div class="radio-pill-group">
+                <label class="radio-pill"><input type="radio" name="engine" value="CPU" /><span>CPU</span></label>
+                <label class="radio-pill"><input type="radio" name="engine" value="GPU (Metal)" checked /><span>⚡ GPU (Metal)</span></label>
+              </div>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <label class="setting-label" for="settingDiarization">Distinzione voci su stessa fonte (Locale)</label>
+                <p class="setting-desc">Separa Voce 1, Voce 2… anche in caso di sovrapposizioni sullo stesso canale.</p>
+              </div>
+              <select id="settingDiarization" class="form-select">
+                <option value="pyannote_overlap" selected>Pyannote + MossFormer2 (Sovrapposizioni)</option>
+                <option value="sherpa_fast">Sherpa-ONNX Clustering (Leggero)</option>
+              </select>
+            </div>
+
+            <!-- SCELTA MODELLO LLM PER ANALISI, FORMATTAZIONE, TAG E RIASSUNTI -->
+            <div class="setting-row setting-row-block">
+              <div class="setting-info">
+                <span class="setting-label">🧠 Modello LLM per analisi, riorganizzazione, formattazione e auto-tag</span>
+                <p class="setting-desc">Scegli provider e modello specifico usato per Verbali POH, Brainstorming, Note lavoro e generazione tag automatici.</p>
+              </div>
+              <div class="llm-config-grid">
+                <div>
+                  <label class="mini-field-label" for="settingLlmProvider">Provider LLM</label>
+                  <select id="settingLlmProvider" class="form-select" style="width:100%">
+                    <option value="ollama" selected>Ollama (Locale · Elaborazione locale)</option>
+                    <option value="lmstudio">LM Studio (Locale OpenAI-compat)</option>
+                    <option value="llamacpp">Llama.cpp GGUF Integrato</option>
+                    <option value="openai">OpenAI / API Compatibile</option>
+                    <option value="anthropic">Anthropic Claude API</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="mini-field-label" for="settingLlmModel">Modello specifico</label>
+                  <select id="settingLlmModel" class="form-select" style="width:100%">
+                    <option value="qwen2.5:7b" selected>qwen2.5:7b-instruct (Ottimo IT/EN/JA)</option>
+                    <option value="llama3.2:3b">llama3.2:3b-instruct (Ultra veloce)</option>
+                    <option value="mistral-nemo:12b">mistral-nemo:12b (Analisi profonda)</option>
+                    <option value="gemma2:9b">gemma2:9b-it (Strutturazione pulita)</option>
+                    <option value="claude-sonnet-4">claude-sonnet (Cloud API)</option>
+                    <option value="gpt-4o-mini">gpt-4o-mini (Cloud API)</option>
+                  </select>
+                </div>
+              </div>
+              <label class="inline-check-row">
+                <input type="checkbox" id="chkAutoGenerateTags" checked />
+                <span>Genera automaticamente tag tematici al termine di ogni trascrizione</span>
+              </label>
+            </div>
+
+            <div class="setting-row setting-row-block">
+              <div class="setting-info">
+                <span class="setting-label">Lingue attive nel rilevamento</span>
+                <p class="setting-desc">Le non attive vengono ignorate dal rilevamento automatico.</p>
+              </div>
+              <div class="lang-checkbox-grid" id="settingsLangCheckboxes">
+                <label class="checkbox-card"><input type="checkbox" value="IT" checked /><span class="cb-code">IT</span><span class="cb-name">Italiano</span></label>
+                <label class="checkbox-card"><input type="checkbox" value="EN" checked /><span class="cb-code">EN</span><span class="cb-name">English</span></label>
+                <label class="checkbox-card"><input type="checkbox" value="FR" /><span class="cb-code">FR</span><span class="cb-name">Français</span></label>
+                <label class="checkbox-card"><input type="checkbox" value="JA" checked /><span class="cb-code">JA</span><span class="cb-name">日本語</span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: TEMA COLORI PERSONALIZZABILE (GIORNO + NOTTE) & ACCESSIBILITÀ IPOVEDENTI -->
+        <div class="settings-tab-pane" id="settingsPaneAppearance" hidden>
+          <div class="settings-grid">
+            <!-- Modalità Giorno / Notte / Sistema -->
+            <div class="setting-row">
+              <div class="setting-info">
+                <label class="setting-label" for="settingTheme">Modalità Giorno / Notte</label>
+                <p class="setting-desc">Segue il sistema oppure forza la modalità Giorno o Notte.</p>
+              </div>
+              <select id="settingTheme" class="form-select">
+                <option value="system" selected>Automatico (Sistema)</option>
+                <option value="light">☀️ Modalità Giorno (Chiaro)</option>
+                <option value="dark">🌙 Modalità Notte (Scuro)</option>
+              </select>
+            </div>
+
+            <!-- Preset Palette Rapidi -->
+            <div class="setting-row setting-row-block">
+              <div class="setting-info">
+                <span class="setting-label">Preset tema colori</span>
+                <p class="setting-desc">Scegli una palette pronta o personalizza singolarmente i colori Giorno e Notte qui sotto.</p>
+              </div>
+              <div class="palette-presets-row" id="palettePresetsRow">
+                <button type="button" class="palette-preset-btn is-active" data-palette="stenon">
+                  <span class="swatch-dot" style="background:#2e86ab"></span> Stenon Ocean
+                </button>
+                <button type="button" class="palette-preset-btn" data-palette="forest">
+                  <span class="swatch-dot" style="background:#1f7a5c"></span> Salvia &amp; Bosco
+                </button>
+                <button type="button" class="palette-preset-btn" data-palette="indigo">
+                  <span class="swatch-dot" style="background:#4f46e5"></span> Indaco Studio
+                </button>
+                <button type="button" class="palette-preset-btn" data-palette="amber">
+                  <span class="swatch-dot" style="background:#b45309"></span> Ambra Calda
+                </button>
+              </div>
+            </div>
+
+            <!-- Personalizzazione Colori Separata per GIORNO e NOTTE -->
+            <div class="setting-row setting-row-block">
+              <div class="dual-theme-customizer">
+                <!-- Colonna Giorno -->
+                <div class="theme-custom-card">
+                  <div class="theme-custom-title">☀️ Personalizza Modalità Giorno</div>
+                  <label class="color-picker-row">
+                    <span>Colore accento</span>
+                    <input type="color" id="colorLightAccent" value="#2e86ab" />
+                  </label>
+                  <label class="color-picker-row">
+                    <span>Sfondo foglio lettura</span>
+                    <input type="color" id="colorLightBg" value="#ffffff" />
+                  </label>
+                  <label class="color-picker-row">
+                    <span>Testo principale</span>
+                    <input type="color" id="colorLightText" value="#111827" />
+                  </label>
+                </div>
+
+                <!-- Colonna Notte -->
+                <div class="theme-custom-card">
+                  <div class="theme-custom-title">🌙 Personalizza Modalità Notte</div>
+                  <label class="color-picker-row">
+                    <span>Colore accento</span>
+                    <input type="color" id="colorDarkAccent" value="#3898c0" />
+                  </label>
+                  <label class="color-picker-row">
+                    <span>Sfondo foglio lettura</span>
+                    <input type="color" id="colorDarkBg" value="#1d242c" />
+                  </label>
+                  <label class="color-picker-row">
+                    <span>Testo principale</span>
+                    <input type="color" id="colorDarkText" value="#f1f5f9" />
+                  </label>
+                </div>
+              </div>
+              <button type="button" class="btn-link-xs" id="btnResetCustomColors">↺ Ripristina colori predefiniti Stenon</button>
+            </div>
+
+            <!-- ACCESSIBILITÀ PER PERSONE IPOVEDENTI -->
+            <div class="setting-row setting-row-block a11y-box">
+              <div class="setting-info">
+                <span class="setting-label">👁️ Accessibilità e supporto per persone ipovedenti</span>
+                <p class="setting-desc">Migliora leggibilità, contrasto cromatico contrasto elevato, spessore caratteri e visibilità del focus e del cursore audio.</p>
+              </div>
+
+              <div class="a11y-controls-grid">
+                <div class="a11y-scale-row">
+                  <label class="mini-field-label" for="settingFontScale">Ingrandimento testo e interfaccia</label>
+                  <div class="scale-pills" id="fontScalePills">
+                    <button type="button" class="scale-pill is-active" data-scale="1">100%</button>
+                    <button type="button" class="scale-pill" data-scale="1.15">115% Grande</button>
+                    <button type="button" class="scale-pill" data-scale="1.28">130% Molto grande</button>
+                    <button type="button" class="scale-pill" data-scale="1.42">142% Ipovedenti</button>
+                  </div>
+                </div>
+
+                <label class="inline-check-row">
+                  <input type="checkbox" id="chkHighContrast" />
+                  <span><strong>Alto Contrasto (contrasto elevato):</strong> bordi netti, contrasto massimo testo/sfondo e cursore parola giallo/nero ad alta visibilità</span>
+                </label>
+
+                <label class="inline-check-row">
+                  <input type="checkbox" id="chkDyslexiaSpacing" />
+                  <span><strong>Spaziatura e spessore aumentati:</strong> interlinea ampia, spaziatura lettere maggiorata e testo semibold più nitido</span>
+                </label>
+
+                <label class="inline-check-row">
+                  <input type="checkbox" id="chkStrongFocus" checked />
+                  <span><strong>Contorno Focus tastiera potenziato (3px) + Etichette parlanti non basate solo sul colore</strong></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: ICONA BARRA DI STATO / SYSTEM TRAY (Attivabile dall'utente!) -->
+        <div class="settings-tab-pane" id="settingsPaneTray" hidden>
+          <div class="settings-grid">
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">📌 Mostra Stenon nelle icone di stato del sistema (System Tray / Menu Bar)</span>
+                <p class="setting-desc">Disattivato di default. Attivalo per accedere rapidamente alle tue funzioni preferite dall'area di notifica del PC.</p>
+              </div>
+              <label class="switch-toggle">
+                <input type="checkbox" id="chkEnableSystemTray" />
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-row setting-row-block" id="trayCustomizationSection">
+              <div class="setting-info">
+                <span class="setting-label">Funzionalità rapide da mostrare nel menu dell'icona di stato</span>
+                <p class="setting-desc">Seleziona solo le azioni che usi più spesso per mantenere il menu immediato.</p>
+              </div>
+
+              <div class="tray-actions-checklist" id="trayActionsChecklist">
+                <label class="checkbox-row-card">
+                  <input type="checkbox" value="quick_dictate" checked />
+                  <span>🎙 Avvia / Ferma Dettatura rapida</span>
+                </label>
+                <label class="checkbox-row-card">
+                  <input type="checkbox" value="quick_meeting" checked />
+                  <span>👥 Avvia / Metti in pausa Riunione</span>
+                </label>
+                <label class="checkbox-row-card">
+                  <input type="checkbox" value="quick_new_note" checked />
+                  <span>✎ Nuova nota rapida (per incollare link o screenshot)</span>
+                </label>
+                <label class="checkbox-row-card">
+                  <input type="checkbox" value="quick_switch_lang" checked />
+                  <span>🌐 Cambia lingua di ascolto al volo</span>
+                </label>
+                <label class="checkbox-row-card">
+                  <input type="checkbox" value="quick_copy_last" />
+                  <span>📋 Copia l'ultima trascrizione o verbale negli appunti</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: HOTKEY & MODALITÀ INCOLLA -->
+        <div class="settings-tab-pane" id="settingsPaneSystem" hidden>
+          <div class="settings-grid">
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">Scorciatoia globale dettatura (Hotkey)</span>
+                <p class="setting-desc">Clicca sul pulsante e premi la combinazione desiderata.</p>
+              </div>
+              <button type="button" class="hotkey-recorder-btn" id="btnHotkeyRecorder">
+                <kbd id="hotkeyDisplay">⌥ Space</kbd>
+                <span class="hotkey-edit-hint" id="hotkeyHint">Clicca per cambiare</span>
+              </button>
+            </div>
+
+            <div class="setting-row setting-row-block">
+              <div class="setting-info">
+                <span class="setting-label">Modalità inserimento nel campo attivo del PC</span>
+                <p class="setting-desc">Come Stenon scrive il testo dettato nelle applicazioni esterne.</p>
+              </div>
+              <div class="paste-mode-cards">
+                <label class="paste-card">
+                  <input type="radio" name="pasteMode" value="clipboard" checked />
+                  <div class="paste-card-body">
+                    <strong>Clipboard (Appunti + Incolla)</strong>
+                    <span>Istantaneo e compatibile con ogni alfabeto (IT, EN, FR, JA).</span>
+                  </div>
+                </label>
+                <label class="paste-card">
+                  <input type="radio" name="pasteMode" value="type" />
+                  <div class="paste-card-body">
+                    <strong>Type (Simulazione battitura)</strong>
+                    <span>Digita senza modificare gli appunti di sistema.</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-footer">
+        <span class="modal-footer-hint" id="settingsSavedFeedback">Tutte le preferenze di Stenon sono salvate in automatico</span>
+        <button type="button" class="btn-primary" data-close-modal="settingsModalBackdrop">Chiudi</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+
+  <script src="./main.js"></script>
 </body>
 </html>

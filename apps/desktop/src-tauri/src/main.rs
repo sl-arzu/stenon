@@ -38,6 +38,11 @@ fn delete_note(id: String, state: State<AppState>) -> bool {
     state.db.lock().unwrap().delete_note(&id)
 }
 
+#[tauri::command]
+fn update_note_text(id: String, text: String, state: State<AppState>) -> bool {
+    state.db.lock().unwrap().update_note_text(&id, &text)
+}
+
 /// Avvia il thread worker: possiede il modello Whisper e la cattura audio.
 /// I tipi non-Send (stream cpal, contesto whisper) non attraversano mai thread.
 fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {

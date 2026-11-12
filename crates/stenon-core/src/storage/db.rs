@@ -242,6 +242,25 @@ impl Db {
                 }
             }
         }
+        // Se esiste una modifica manuale (op "edited"), vince sull'ultimo testo:
+        // i timestamp dei segmenti non sono più allineati al testo modificato.
+        let edited: Option<(String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT text, created_at FROM versions \
+                 WHERE note_id = ?1 AND op = 'edited' ORDER BY created_at DESC LIMIT 1",
+                rusqlite::params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .ok();
+        if let Some((edited_text, edited_at)) = edited {
+            segments = vec![SegmentRow {
+                start_ms: 0,
+                end_ms: duration_ms,
+                text: edited_text,
+            }];
+            let _ = edited_at;
+        }
         let text = segments
             .iter()
             .map(|s| s.text.clone())
@@ -256,6 +275,34 @@ impl Db {
             text,
             segments,
         })
+    }
+
+    /// Salva una modifica manuale al testo della nota (op "edited").
+    /// La versione più recente di questo tipo sostituisce i segmenti in `get_note`.
+    pub fn update_note_text(&self, id: &str, text: &str) -> bool {
+        let exists: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM notes WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .ok();
+        if exists.is_none() {
+            return false;
+        }
+        let created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let version_id = format!("v-edited-{}-{}", created_at, id);
+        self.conn
+            .execute(
+                "INSERT INTO versions (id, note_id, parent_id, op, model, text, created_at) \
+                 VALUES (?1, ?2, NULL, 'edited', NULL, ?3, ?4)",
+                rusqlite::params![version_id, id, text, created_at],
+            )
+            .is_ok()
     }
 
     /// Elimina una nota e i suoi dati collegati. Restituisce true se eliminata.
