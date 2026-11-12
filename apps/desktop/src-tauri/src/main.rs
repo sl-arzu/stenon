@@ -15,8 +15,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 enum RecCommand {
     Start,
     Stop,
-    /// Lingua di trascrizione scelta dall'utente ("auto", "it", "en", "ja", ...).
-    SetLanguage(String),
+    /// Lingue di trascrizione ammesse (vuoto = rilevamento libero).
+    SetLanguages(Vec<String>),
 }
 
 struct AppState {
@@ -45,18 +45,19 @@ fn update_note_text(id: String, text: String, state: State<AppState>) -> bool {
     state.db.lock().unwrap().update_note_text(&id, &text)
 }
 
-/// Imposta la lingua di trascrizione a runtime ("auto", "it", "en", "ja", ...).
+/// Imposta le lingue di trascrizione ammesse a runtime.
+/// Lista vuota (o contenente "auto") = rilevamento libero tra tutte le lingue.
 #[tauri::command]
-fn set_language(lang: String, state: State<AppState>) -> Result<(), String> {
-    let lang = lang.to_lowercase();
-    let ok = lang == "auto"
-        || (lang.len() == 2 && lang.chars().all(|c| c.is_ascii_alphabetic()));
-    if !ok {
-        return Err(format!("lingua non valida: {lang}"));
-    }
+fn set_languages(langs: Vec<String>, state: State<AppState>) -> Result<(), String> {
+    let mut langs: Vec<String> = langs
+        .into_iter()
+        .map(|l| l.to_lowercase())
+        .filter(|l| l.len() == 2 && l.chars().all(|c| c.is_ascii_alphabetic()))
+        .collect();
+    langs.dedup();
     state
         .rec_tx
-        .send(RecCommand::SetLanguage(lang))
+        .send(RecCommand::SetLanguages(langs))
         .map_err(|e| format!("worker non raggiungibile: {e}"))
 }
 
@@ -104,16 +105,23 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
                 }
             };
         let mut language = language;
+        // Insieme di lingue ammesse: vuoto = rilevamento libero
+        let mut languages: Vec<String> = if language == "auto" {
+            Vec::new()
+        } else {
+            vec![language.clone()]
+        };
         let mut capture: Option<Capture> = None;
 
         for cmd in rx {
             match cmd {
-                RecCommand::SetLanguage(lang) => {
-                    language = lang.clone();
-                    if let Some(t) = transcriber.as_mut() {
-                        t.set_language(&lang);
-                    }
-                    eprintln!("stenon: lingua di trascrizione: {lang}");
+                RecCommand::SetLanguages(langs) => {
+                    languages = langs.clone();
+                    language = langs
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "auto".to_string());
+                    eprintln!("stenon: lingue ammesse: {:?}", langs);
                 }
                 RecCommand::Start => {
                     eprintln!("stenon: registrazione avviata");
@@ -129,10 +137,10 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
                     let Some(cap) = capture.take() else { continue };
                     let (samples, rate, channels) = cap.stop();
                     let pcm = to_mono_16k(&samples, rate, channels);
-                    let segments = transcriber
-                        .as_ref()
-                        .map(|t| t.transcribe(&pcm))
-                        .unwrap_or_default();
+                    let (segments, used_lang) = transcriber
+                        .as_mut()
+                        .map(|t| t.transcribe_constrained(&pcm, &languages))
+                        .unwrap_or((Vec::new(), language.clone()));
                     if segments.is_empty() {
                         eprintln!("stenon: nessun segmento riconosciuto");
                         continue;
@@ -143,7 +151,7 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
                         if let Err(e) = stenon_core::pipeline::save_dictation(
                             &db,
                             &segments,
-                            &language,
+                            &used_lang.to_uppercase(),
                             duration_ms,
                             "dettatura",
                             None,
@@ -222,7 +230,7 @@ fn main() {
             delete_note,
             update_note_text,
             save_note,
-            set_language
+            set_languages
         ])
         .run(tauri::generate_context!())
         .expect("errore durante l'esecuzione di Stenon");

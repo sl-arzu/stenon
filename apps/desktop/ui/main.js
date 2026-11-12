@@ -32,7 +32,7 @@ const TAURI_COMMANDS = {
   SAVE_VOCABULARY: "save_vocabulary",
   SAVE_SETTINGS: "save_settings",
   UPDATE_NOTE_TEXT: "update_note_text",
-  SET_LANGUAGE: "set_language",
+  SET_LANGUAGES: "set_languages",
 };
 
 const tauriInvoke =
@@ -2526,7 +2526,7 @@ const palettes = {light:{accent:'#2e86ab',bg:'#ffffff',text:'#111827'},dark:{acc
 function tagsOf(n){return [...new Set([...(n.autoTags||[]),...(n.manualTags||[])])];}
 function autoTags(n){const t=(getNotePlainTranscript(n)+' '+(n.extraContext||'')).toLowerCase();return Object.entries({riunione:/riunion|meeting|partecip/,budget:/budget|euro|preventiv/,sviluppo:/tauri|software|app|codic/,pianificazione:/lancio|scadenz|gennaio|pian/,audio:/audio|microfon|voce/,idee:/idea|propo|brainstorm/}).filter(([,r])=>r.test(t)).map(([k])=>k).slice(0,5);}
 function prepareNotes(){state.notes.forEach(n=>{n.attachments ||= []; n.manualTags ||= []; n.extraContext ||= ''; if(state.settings.autoGenerateTags && !n.autoTags)n.autoTags=autoTags(n);});}
-function initV3(){Object.assign(state.settings,{llmModel:'qwen2.5:7b',autoGenerateTags:true,dictationLanguage:'auto',lightColors:{...palettes.light},darkColors:{...palettes.dark},fontScale:1,highContrast:false,dyslexiaSpacing:false,strongFocus:true,trayEnabled:false,trayActions:['quick_dictate','quick_meeting','quick_new_note']});if(!REAL_BACKEND){try{const x=JSON.parse(localStorage.getItem('stenon.v3'));if(x){Object.assign(state.settings,x.settings);if(x.notes?.length)state.notes=x.notes;}}catch{}}else{state.notes=[];state.selectedNoteId=null;}prepareNotes();applyAppearance();}
+function initV3(){Object.assign(state.settings,{llmModel:'qwen2.5:7b',autoGenerateTags:true,dictationLanguages:[],lightColors:{...palettes.light},darkColors:{...palettes.dark},fontScale:1,highContrast:false,dyslexiaSpacing:false,strongFocus:true,trayEnabled:false,trayActions:['quick_dictate','quick_meeting','quick_new_note']});if(!REAL_BACKEND){try{const x=JSON.parse(localStorage.getItem('stenon.v3'));if(x){Object.assign(state.settings,x.settings);/* migrazione: vecchio selettore a lingua singola */if(typeof x.settings.dictationLanguage==='string'){state.settings.dictationLanguages=x.settings.dictationLanguage==='auto'?[]:[x.settings.dictationLanguage];delete state.settings.dictationLanguage;}if(x.notes?.length)state.notes=x.notes;}}catch{}}else{state.notes=[];state.selectedNoteId=null;}prepareNotes();applyAppearance();}
 function persistV3(){if(REAL_BACKEND){try{localStorage.setItem('stenon.v3',JSON.stringify({settings:state.settings}));}catch{showToast('Impostazioni non salvate localmente.');}return;}try{localStorage.setItem('stenon.v3',JSON.stringify({settings:state.settings,notes:state.notes}));}catch{showToast('Spazio locale insufficiente: esporta la nota. Gli allegati grandi richiedono il vault Tauri.');}}
 function saveV3(){persistV3();callBackend(TAURI_COMMANDS.SAVE_SETTINGS,{settings:state.settings});}
 function applyAppearance(){const r=document.documentElement,s=state.settings;r.style.setProperty('--font-scale',s.fontScale);for(const mode of ['light','dark'])for(const key of ['accent','bg','text'])r.style.setProperty(`--user-${mode}-${key}`,s[mode+'Colors'][key]);r.dataset.highContrast=s.highContrast;r.dataset.wideSpacing=s.dyslexiaSpacing;r.dataset.strongFocus=s.strongFocus;}
@@ -2549,14 +2549,26 @@ on('btnAudioBack5','click',()=>{state.audioCurrentSec=Math.max(0,state.audioCurr
 on('sidebarTagsCloud','click',e=>{const b=e.target.closest('[data-filter-tag]');if(b){state.tagFilter=state.tagFilter===b.dataset.filterTag?'':b.dataset.filterTag;renderNotesList();renderV3();}});on('btnResetTagFilter','click',()=>{state.tagFilter='';renderAll();});on('btnClearAllFilters','click',()=>{state.tagFilter='';renderAll();});
 on('newTagInlineInput','keydown',e=>{if(e.key==='Enter'){const t=e.target.value.trim().replace(/^#/,'');if(t){getSelectedNote().manualTags.push(t);e.target.value='';commit();}}});on('detailTagsList','click',e=>{const b=e.target.closest('[data-remove-tag]');if(b){const n=getSelectedNote();for(const k of ['autoTags','manualTags'])n[k]=(n[k]||[]).filter(t=>t!==b.dataset.removeTag);commit();}});on('btnGenerateAutoTags','click',async()=>{const n=getSelectedNote();const result=await callBackend('generate_auto_tags',{note:n,provider:state.settings.llmProvider,model:state.settings.llmModel});n.autoTags=Array.isArray(result)?result:autoTags(n);commit();showToast(tauriInvoke?'Tag aggiornati':'Tag demo estratti con regole locali, senza LLM');});
 on('settingLlmProvider','change',()=>{modelsUI();saveV3();renderV3();});on('settingLlmModel','change',e=>{state.settings.llmModel=e.target.value;state.notes.forEach(n=>n.summaries={});saveV3();renderV3();});
-// Lingua di trascrizione (reale: comanda il backend Whisper)
-const dictationLangSel = document.getElementById('dictationLangSelect');
-if (dictationLangSel) {
-  dictationLangSel.value = state.settings.dictationLanguage || 'auto';
-  dictationLangSel.addEventListener('change', () => {
-    state.settings.dictationLanguage = dictationLangSel.value;
+// Lingue di trascrizione ammesse (reale: comanda il backend Whisper)
+const dictationLangChips = document.getElementById('dictationLangChips');
+if (dictationLangChips) {
+  const syncLangChips = () => {
+    const arr = state.settings.dictationLanguages || [];
+    dictationLangChips.querySelectorAll('[data-dlang]').forEach(b => {
+      b.classList.toggle('is-active', arr.includes(b.dataset.dlang));
+      b.setAttribute('aria-pressed', arr.includes(b.dataset.dlang) ? 'true' : 'false');
+    });
+  };
+  syncLangChips();
+  dictationLangChips.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-dlang]');
+    if (!b) return;
+    const arr = state.settings.dictationLanguages || (state.settings.dictationLanguages = []);
+    const i = arr.indexOf(b.dataset.dlang);
+    if (i >= 0) arr.splice(i, 1); else arr.push(b.dataset.dlang);
     saveV3();
-    if (REAL_BACKEND) callBackend(TAURI_COMMANDS.SET_LANGUAGE, { lang: dictationLangSel.value });
+    syncLangChips();
+    if (REAL_BACKEND) callBackend(TAURI_COMMANDS.SET_LANGUAGES, { langs: arr });
   });
 }
 for(const [id,key] of [['chkAutoGenerateTags','autoGenerateTags'],['chkHighContrast','highContrast'],['chkDyslexiaSpacing','dyslexiaSpacing'],['chkStrongFocus','strongFocus'],['chkEnableSystemTray','trayEnabled']]){ $(id).checked=state.settings[key];on(id,'change',e=>{state.settings[key]=e.target.checked;applyAppearance();saveV3();renderV3();$('trayCustomizationSection').hidden=!state.settings.trayEnabled;if(key==='trayEnabled')callBackend('set_tray_enabled',{enabled:e.target.checked,actions:state.settings.trayActions});});}
@@ -2576,8 +2588,8 @@ $('trayCustomizationSection').hidden=!state.settings.trayEnabled;modelsUI();wind
   initV3();
   if (REAL_BACKEND) {
     await loadRealNotes();
-    // Applica la lingua di trascrizione salvata (default: auto)
-    callBackend(TAURI_COMMANDS.SET_LANGUAGE, { lang: state.settings.dictationLanguage || 'auto' });
+    // Applica le lingue di trascrizione salvate (vuoto = rilevamento libero)
+    callBackend(TAURI_COMMANDS.SET_LANGUAGES, { langs: state.settings.dictationLanguages || [] });
     if (tauriListen) {
       await tauriListen("note-saved", () => {
         loadRealNotes().then(() => renderAll());

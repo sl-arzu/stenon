@@ -460,10 +460,9 @@ kbd {
 
 .lang-picker {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 8px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
   border-radius: var(--radius-sm);
   background: var(--bg-subtle);
   border: 1px solid var(--border-hairline);
@@ -472,18 +471,23 @@ kbd {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-secondary);
-  white-space: nowrap;
 }
-.lang-picker-select {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--border-hairline);
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: 0.82rem;
+.lang-picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.lang-picker-chips .lang-chip {
+  flex: 0 0 auto;
+  flex-direction: row;
+  padding: 3px 9px;
+  font-size: 0.75rem;
+  font-weight: 700;
   cursor: pointer;
+}
+.lang-picker-hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
 }
 
 .capture-panel { display: flex; flex-direction: column; gap: 8px; }

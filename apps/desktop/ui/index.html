@@ -82,15 +82,22 @@
         </button>
       </div>
 
-      <!-- Lingua di trascrizione (reale: parla al backend Whisper) -->
+      <!-- Lingue di trascrizione (reale: parla al backend Whisper; nessuna selezione = tutte) -->
       <div class="lang-picker" id="dictationLangPicker">
-        <label class="lang-picker-label" for="dictationLangSelect">Lingua di trascrizione</label>
-        <select class="lang-picker-select" id="dictationLangSelect">
-          <option value="auto">Rileva automaticamente</option>
-          <option value="it">Italiano</option>
-          <option value="en">English</option>
-          <option value="ja">日本語</option>
-        </select>
+        <span class="lang-picker-label">Lingue di trascrizione</span>
+        <div class="lang-picker-chips" id="dictationLangChips" role="group" aria-label="Lingue ammesse per la dettatura">
+          <button type="button" class="lang-chip" data-dlang="it">IT</button>
+          <button type="button" class="lang-chip" data-dlang="en">EN</button>
+          <button type="button" class="lang-chip" data-dlang="fr">FR</button>
+          <button type="button" class="lang-chip" data-dlang="es">ES</button>
+          <button type="button" class="lang-chip" data-dlang="de">DE</button>
+          <button type="button" class="lang-chip" data-dlang="pt">PT</button>
+          <button type="button" class="lang-chip" data-dlang="nl">NL</button>
+          <button type="button" class="lang-chip" data-dlang="ru">RU</button>
+          <button type="button" class="lang-chip" data-dlang="pl">PL</button>
+          <button type="button" class="lang-chip" data-dlang="ja">JA</button>
+        </div>
+        <span class="lang-picker-hint">Nessuna selezione = rilevamento libero tra tutte</span>
       </div>
 
       <!-- PANNELLO STATO A: DETTATURA -->

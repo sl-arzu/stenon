@@ -2,7 +2,9 @@
 
 use super::{Segment, Transcriber};
 use std::path::Path;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    get_lang_str, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
+};
 
 /// Trascrizione locale con whisper.cpp.
 pub struct WhisperTranscriber {
@@ -43,6 +45,127 @@ impl WhisperTranscriber {
     /// Cambia la lingua di trascrizione a runtime ("auto" = rilevamento).
     pub fn set_language(&mut self, language: &str) {
         self.lang = language.to_string();
+    }
+
+    /// Una singola passata di trascrizione con la lingua indicata.
+    /// Restituisce segmenti, probabilità media dei token e id lingua rilevato.
+    fn run_pass(&self, pcm: &[f32], lang: &str) -> Option<(Vec<Segment>, f32, Option<i32>)> {
+        let mut state = self.ctx.create_state().ok()?;
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        let _ = params.set_language(Some(lang));
+        if !self.initial_prompt.is_empty() {
+            params.set_initial_prompt(&self.initial_prompt);
+        }
+        params.set_print_special(false);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+
+        if let Err(e) = state.full(params, pcm) {
+            eprintln!("whisper: trascrizione fallita ({lang}): {e}");
+            return None;
+        }
+
+        let detected = state.full_lang_id_from_state().ok();
+        let n = state.full_n_segments().ok()?;
+        let mut out = Vec::with_capacity(n as usize);
+        let mut prob_sum = 0.0f32;
+        let mut prob_n = 0i64;
+        for i in 0..n {
+            let text = match state.full_get_segment_text(i) {
+                Ok(t) => t.trim().to_string(),
+                Err(_) => continue,
+            };
+            if let Ok(nt) = state.full_n_tokens(i) {
+                for j in 0..nt {
+                    if let Ok(td) = state.full_get_token_data(i, j) {
+                        prob_sum += td.p;
+                        prob_n += 1;
+                    }
+                }
+            }
+            if text.is_empty() {
+                continue;
+            }
+            let (t0, t1) = (
+                state.full_get_segment_t0(i).unwrap_or(0),
+                state.full_get_segment_t1(i).unwrap_or(0),
+            );
+            out.push(Segment {
+                start_ms: t0 * 10,
+                end_ms: t1 * 10,
+                text,
+                lang: lang.to_string(),
+            });
+        }
+        let avg_prob = if prob_n > 0 { prob_sum / prob_n as f32 } else { 0.0 };
+        Some((out, avg_prob, detected))
+    }
+
+    /// Trascrive rispettando l'insieme di lingue ammesse.
+    /// - `allowed` vuoto: rilevamento libero tra tutte le lingue.
+    /// - una sola lingua: fissata, nessun rilevamento.
+    /// - più lingue: prima passata libera; se la lingua rilevata non è tra
+    ///   quelle ammesse, riprova con ciascuna e tiene quella con probabilità
+    ///   media dei token più alta.
+    /// Restituisce i segmenti e la lingua effettivamente usata.
+    pub fn transcribe_constrained(
+        &mut self,
+        pcm: &[f32],
+        allowed: &[String],
+    ) -> (Vec<Segment>, String) {
+        if pcm.is_empty() {
+            return (Vec::new(), self.lang.clone());
+        }
+        if allowed.len() == 1 {
+            self.lang = allowed[0].clone();
+            let segs = self
+                .run_pass(pcm, &allowed[0])
+                .map(|(s, _, _)| s)
+                .unwrap_or_default();
+            return (segs, allowed[0].clone());
+        }
+
+        let auto = self.run_pass(pcm, "auto");
+        let detected = auto
+            .as_ref()
+            .and_then(|(_, _, id)| *id)
+            .and_then(|id| get_lang_str(id).map(|s| s.to_string()));
+
+        let accepted = match (&detected, &auto) {
+            // nessun vincolo: la passata libera va sempre bene
+            _ if allowed.is_empty() => true,
+            // lingua rilevata e ammessa: accetta
+            (Some(d), Some(_)) => allowed.iter().any(|l| l == d),
+            // rilevamento mancante: non è affidabile, riprova con le ammesse
+            _ => false,
+        };
+
+        if accepted {
+            if let Some((segs, _, _)) = auto {
+                let used = detected.unwrap_or_else(|| "auto".to_string());
+                return (segs, used);
+            }
+        }
+
+        // Lingua rilevata non ammessa (o rilevamento mancante):
+        // una passata per ogni lingua ammessa, vince la più sicura.
+        let mut best: Option<(Vec<Segment>, f32, String)> = None;
+        for lang in allowed {
+            if let Some((segs, prob, _)) = self.run_pass(pcm, lang) {
+                let better = best
+                    .as_ref()
+                    .map(|(_, bp, _)| prob > *bp)
+                    .unwrap_or(true);
+                if better {
+                    best = Some((segs, prob, lang.clone()));
+                }
+            }
+        }
+        match best {
+            Some((segs, _, lang)) => (segs, lang),
+            None => (Vec::new(), self.lang.clone()),
+        }
     }
 }
 
