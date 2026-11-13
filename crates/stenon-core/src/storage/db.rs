@@ -203,10 +203,8 @@ impl Db {
 
     /// Elenco note per la UI (dal più recente).
     pub fn list_notes(&self) -> Vec<NoteSummary> {
-        let mut stmt = match self
-            .conn
-            .prepare(
-                "SELECT n.id, n.created_at, n.duration_ms, n.mode, n.language, \
+        let mut stmt = match self.conn.prepare(
+            "SELECT n.id, n.created_at, n.duration_ms, n.mode, n.language, \
                  n.title, n.pinned, n.tags, \
                  COALESCE( \
                    (SELECT v.text FROM versions v \
@@ -216,8 +214,7 @@ impl Db {
                     JOIN tracks t ON s.track_id = t.id WHERE t.note_id = n.id) \
                  ) AS body \
                  FROM notes n ORDER BY n.created_at DESC",
-            )
-        {
+        ) {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };

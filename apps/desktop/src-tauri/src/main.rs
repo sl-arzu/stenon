@@ -55,8 +55,7 @@ fn update_note_meta(
     tags: Option<Vec<String>>,
     state: State<AppState>,
 ) -> bool {
-    let tags_json = tags
-        .map(|t| serde_json::to_string(&t).unwrap_or_else(|_| "[]".to_string()));
+    let tags_json = tags.map(|t| serde_json::to_string(&t).unwrap_or_else(|_| "[]".to_string()));
     state
         .db
         .lock()
