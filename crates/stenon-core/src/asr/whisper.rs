@@ -132,19 +132,20 @@ impl WhisperTranscriber {
             return (segs, allowed[0].clone());
         }
 
-        // Blocchi da 10 s: in whisper la lingua si rileva una sola volta per
-        // passata, quindi per l'alternanza di lingue serve ridividere.
-        const CHUNK_SAMPLES: usize = 160_000; // 10 s a 16 kHz
+        // Blocchi da 5 s con confini nei punti di silenzio: in whisper la
+        // lingua si rileva una sola volta per passata, quindi per l'alternanza
+        // di lingue (anche in dettature brevi) serve ridividere spesso.
+        let chunks = split_at_silence(pcm, 80_000); // 5 s a 16 kHz
         let mut all: Vec<Segment> = Vec::new();
         let mut lang_score: Vec<(String, usize)> = Vec::new(); // (lingua, caratteri)
 
-        for (ci, chunk) in pcm.chunks(CHUNK_SAMPLES).enumerate() {
-            let offset_ms = (ci * CHUNK_SAMPLES * 1000 / 16_000) as i64;
-            let chunk = trim_silence_edges(chunk);
+        for (start, end) in chunks {
+            let offset_ms = (start * 1000 / 16_000) as i64;
+            let chunk = trim_silence_edges(&pcm[start..end]);
             if chunk.is_empty() {
                 continue;
             }
-            let (segs, used) = self.transcribe_chunk(chunk, allowed);
+            let (segs, _used) = self.transcribe_chunk(chunk, allowed);
             for mut s in segs {
                 s.start_ms += offset_ms;
                 s.end_ms += offset_ms;
@@ -208,6 +209,41 @@ impl WhisperTranscriber {
             None => (Vec::new(), self.lang.clone()),
         }
     }
+}
+
+/// Divide l'audio in blocchi di durata circa `target` campioni, spostando
+/// ogni confine nel punto più silenzioso nelle vicinanze (±1 s) per non
+/// troncare le parole a metà.
+fn split_at_silence(pcm: &[f32], target: usize) -> Vec<(usize, usize)> {
+    const SEARCH: usize = 16_000; // ±1 s
+    const WIN: usize = 480; // 30 ms
+    let energy = |i: usize| -> f32 {
+        pcm[i..(i + WIN).min(pcm.len())]
+            .iter()
+            .map(|s| s.abs())
+            .sum()
+    };
+    let mut bounds = vec![0usize];
+    let mut b = target;
+    while b < pcm.len() {
+        let lo = b.saturating_sub(SEARCH);
+        let hi = (b + SEARCH).min(pcm.len().saturating_sub(WIN));
+        if hi <= lo {
+            break;
+        }
+        let best = (lo..hi)
+            .step_by(80)
+            .min_by(|x, y| energy(*x).partial_cmp(&energy(*y)).unwrap())
+            .unwrap();
+        bounds.push(best);
+        b = best + target;
+    }
+    bounds.push(pcm.len());
+    bounds
+        .windows(2)
+        .filter(|w| w[1] > w[0])
+        .map(|w| (w[0], w[1]))
+        .collect()
 }
 
 /// Taglia il silenzio iniziale e finale (soglia bassa, finestra di 50 ms):
