@@ -21,11 +21,19 @@ pub struct NoteSummary {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SegmentRow {
     pub start_ms: i64,
     pub end_ms: i64,
     pub text: String,
+}
+
+/// Segmenti di una singola traccia (Fase C: mic / system).
+#[derive(Debug, Serialize)]
+pub struct TrackSegs {
+    pub kind: String,
+    pub label: String,
+    pub segments: Vec<SegmentRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,8 +43,11 @@ pub struct NoteDetail {
     pub duration_ms: i64,
     pub mode: String,
     pub language: String,
+    pub audio_path: Option<String>,
     pub text: String,
     pub segments: Vec<SegmentRow>,
+    /// Tutte le tracce con i loro segmenti (Fase C); vuota per le note vecchie.
+    pub tracks: Vec<TrackSegs>,
 }
 
 const SCHEMA: &str = r#"
@@ -298,10 +309,17 @@ impl Db {
 
     /// Dettaglio di una nota: testo puro della trascrizione e segmenti.
     pub fn get_note(&self, id: &str) -> Option<NoteDetail> {
-        let (created_at, duration_ms, mode, language): (i64, i64, String, String) = self
+        let (created_at, duration_ms, mode, language, audio_path): (
+            i64,
+            i64,
+            String,
+            String,
+            Option<String>,
+        ) = self
             .conn
             .query_row(
-                "SELECT created_at, duration_ms, mode, language FROM notes WHERE id = ?1",
+                "SELECT created_at, duration_ms, mode, language, audio_path \
+                 FROM notes WHERE id = ?1",
                 rusqlite::params![id],
                 |row| {
                     Ok((
@@ -309,36 +327,48 @@ impl Db {
                         row.get(1)?,
                         row.get(2)?,
                         row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                        row.get(4)?,
                     ))
                 },
             )
             .ok()?;
+        // Tutte le tracce con i loro segmenti (Fase C). Retrocompatibile:
+        // `segments` resta la prima traccia (mic nelle dettature).
         let mut segments = Vec::new();
-        if let Ok(mut stmt) = self.conn.prepare(
-            "SELECT start_ms, end_ms, text FROM segments WHERE track_id = ?1 ORDER BY start_ms",
-        ) {
-            // una sola traccia 'mic' in Fase 0: usa il primo track id della nota
-            let track_id: Option<String> = self
-                .conn
-                .query_row(
-                    "SELECT id FROM tracks WHERE note_id = ?1 LIMIT 1",
-                    rusqlite::params![id],
-                    |row| row.get(0),
-                )
-                .ok();
-            if let Some(track_id) = track_id {
-                let rows = stmt
-                    .query_map(rusqlite::params![track_id], |row| {
-                        Ok(SegmentRow {
-                            start_ms: row.get(0)?,
-                            end_ms: row.get(1)?,
-                            text: row.get(2)?,
+        let mut tracks = Vec::new();
+        if let Ok(mut stmt_tracks) = self
+            .conn
+            .prepare("SELECT id, kind, label FROM tracks WHERE note_id = ?1 ORDER BY rowid")
+        {
+            let track_rows: Vec<(String, String, String)> = stmt_tracks
+                .query_map(rusqlite::params![id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .map(|rows| rows.flatten().collect())
+                .unwrap_or_default();
+            for (track_id, kind, label) in track_rows {
+                let mut segs = Vec::new();
+                if let Ok(mut stmt) = self.conn.prepare(
+                    "SELECT start_ms, end_ms, text FROM segments \
+                     WHERE track_id = ?1 ORDER BY start_ms",
+                ) {
+                    let rows = stmt
+                        .query_map(rusqlite::params![track_id], |row| {
+                            Ok(SegmentRow {
+                                start_ms: row.get(0)?,
+                                end_ms: row.get(1)?,
+                                text: row.get(2)?,
+                            })
                         })
-                    })
-                    .ok()?;
-                for sr in rows.flatten() {
-                    segments.push(sr);
+                        .ok()?;
+                    for sr in rows.flatten() {
+                        segs.push(sr);
+                    }
                 }
+                if segments.is_empty() {
+                    segments = segs.clone();
+                }
+                tracks.push(TrackSegs { kind, label, segments: segs });
             }
         }
         // Se esiste una modifica manuale (op "edited"), vince sull'ultimo testo:
@@ -371,8 +401,10 @@ impl Db {
             duration_ms,
             mode,
             language,
+            audio_path,
             text,
             segments,
+            tracks,
         })
     }
 

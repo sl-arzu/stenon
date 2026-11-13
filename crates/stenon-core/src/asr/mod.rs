@@ -19,3 +19,7 @@ pub mod whisper;
 
 #[cfg(feature = "whisper")]
 pub use whisper::WhisperTranscriber;
+
+// Taglio silenzio ai bordi dei blocchi (usato anche dalla riunione, Fase C)
+#[cfg(feature = "whisper")]
+pub use whisper::trim_silence_edges;

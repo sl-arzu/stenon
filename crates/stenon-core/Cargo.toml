@@ -15,6 +15,17 @@ uuid = { version = "1", features = ["v4"] }
 
 whisper-rs = { version = "0.13", optional = true }
 
+# Loopback audio di sistema via ScreenCaptureKit (solo macOS, Fase C).
+# Binding objc2 pure Rust, nessun build Swift: la crate screencapturekit-rs
+# esigeva apple-metal (build Swift con API macOS 26 non in questo SDK).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-core-foundation = "0.3"
+objc2-core-media = { version = "0.3", features = ["CMBlockBuffer", "CMSampleBuffer"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSError"] }
+objc2-screen-capture-kit = "0.3"
+block2 = "0.6"
+
 [features]
 default = []
 # Implementazione ASR locale con whisper.cpp

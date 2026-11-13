@@ -248,7 +248,7 @@ fn split_at_silence(pcm: &[f32], target: usize) -> Vec<(usize, usize)> {
 
 /// Taglia il silenzio iniziale e finale (soglia bassa, finestra di 50 ms):
 /// blocchi più puliti migliorano il rilevamento della lingua.
-fn trim_silence_edges(pcm: &[f32]) -> &[f32] {
+pub fn trim_silence_edges(pcm: &[f32]) -> &[f32] {
     const THRESHOLD: f32 = 0.002;
     const WIN: usize = 800; // 50 ms a 16 kHz
     let loud = |w: &[f32]| w.iter().any(|s| s.abs() > THRESHOLD);

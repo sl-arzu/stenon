@@ -22,6 +22,12 @@ impl Capture {
         self.channels
     }
 
+    /// Copia del buffer accumulato finora, senza fermare la cattura
+    /// (usata dal chunking live della riunione, Fase C).
+    pub fn snapshot(&self) -> Vec<f32> {
+        self.buffer.lock().map(|b| b.clone()).unwrap_or_default()
+    }
+
     /// Ferma la cattura e restituisce (pcm, rate, canali).
     pub fn stop(self) -> (Vec<f32>, u32, usize) {
         drop(self.stream);

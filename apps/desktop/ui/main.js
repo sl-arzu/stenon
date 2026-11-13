@@ -20,10 +20,10 @@ const TAURI_COMMANDS = {
   // Modalità Riunione & Fonti Audio
   LIST_AUDIO_SOURCES: "list_audio_sources",
   SET_AUDIO_SOURCES: "set_active_audio_sources",
-  START_MEETING: "start_meeting_recording",
-  PAUSE_MEETING: "pause_meeting_recording",
-  RESUME_MEETING: "resume_meeting_recording",
-  STOP_MEETING: "stop_meeting_recording",
+  START_MEETING: "start_meeting",
+  PAUSE_MEETING: "pause_meeting",
+  RESUME_MEETING: "resume_meeting",
+  STOP_MEETING: "stop_meeting",
 
   // Note, Riassunti AI & Impostazioni
   SAVE_NOTE: "save_note",
@@ -96,9 +96,10 @@ function dateGroupFor(d) {
 
 function mapSummaryToCard(s) {
   const d = new Date(s.created_at); // ms dall'epoch
+  const isMeeting = s.mode === "riunione";
   return {
     id: s.id,
-    kind: "dictation",
+    kind: isMeeting ? "meeting" : "dictation",
     project: "",
     customTitle: false,
     title: "",
@@ -114,7 +115,7 @@ function mapSummaryToCard(s) {
     durationSec: Math.round((s.duration_ms || 0) / 1000),
     lang: (s.language || "auto").toUpperCase(),
     modelUsed: "whisper base",
-    sourceApp: "",
+    sourceApp: isMeeting ? "👥 Riunione" : "",
     preview: s.preview || "",
     title: s.title || "",
     customTitle: !!s.title,
@@ -125,7 +126,7 @@ function mapSummaryToCard(s) {
 }
 
 function mapDetailToNote(d) {
-  return {
+  const note = {
     passes: (d.segments || []).map((sg, i) => {
       const start = new Date(d.created_at + sg.start_ms);
       return {
@@ -137,6 +138,29 @@ function mapDetailToNote(d) {
       };
     }),
   };
+  // Fase C: nota riunione — le tracce diventano speakers + utterances (chat)
+  if (d.mode === "riunione" && Array.isArray(d.tracks) && d.tracks.length) {
+    note.speakers = d.tracks.map((t) => ({
+      id: t.kind,
+      label: t.kind === "mic" ? "🎤 Microfono" : "💻 Sistema",
+      sourceBadge: t.kind === "mic" ? "MIC" : "SYS",
+    }));
+    note.utterances = [];
+    for (const t of d.tracks) {
+      for (const sg of t.segments || []) {
+        const start = new Date(d.created_at + sg.start_ms);
+        note.utterances.push({
+          id: `u-${t.kind}-${sg.start_ms}`,
+          speakerId: t.kind,
+          startSec: Math.round(sg.start_ms / 1000),
+          timeLabel: fmtHHMM(start),
+          text: sg.text,
+        });
+      }
+    }
+    note.utterances.sort((a, b) => a.startSec - b.startSec);
+  }
+  return note;
 }
 
 async function hydrateNote(id) {
@@ -1099,8 +1123,13 @@ async function stopAndTranscribeDictation() {
 /* --- Flussi Modalità Riunione (Registra / Pausa / Ferma) --- */
 async function startMeetingFlow() {
   if (REAL_BACKEND) {
-    // Fase C: cattura multicanale e pipeline riunione non ancora integrate.
-    showToast("Modalità riunione: in arrivo (Fase C) — per ora è una demo");
+    // Fase C: cattura reale mic + loopback di sistema (ScreenCaptureKit).
+    const res = await callBackend(TAURI_COMMANDS.START_MEETING);
+    if (res === null && !tauriInvoke) return; // backend assente: demo
+    state.meetingStartedAtMs = Date.now();
+    state.liveMeetingChunks = 0;
+    beginLiveMeetingNote();
+    setAppStatus("recording", { initialSeconds: 0 });
     return;
   }
   if (getEnabledAudioSources().length === 0) {
@@ -1130,6 +1159,13 @@ async function stopMeetingFlow() {
   const activeSrcs = getEnabledAudioSources();
   setAppStatus("transcribing");
   await callBackend(TAURI_COMMANDS.STOP_MEETING);
+
+  if (REAL_BACKEND) {
+    // Fase C: il backend salva audio+note ed emette note-saved;
+    // loadRealNotes ricarica la lista completa.
+    showToast("Riunione salvata");
+    return;
+  }
 
   if (!tauriInvoke) {
     transcribeTimeout = setTimeout(() => {
@@ -2771,6 +2807,43 @@ on('attachmentsPanel','click',e=>{const rm=e.target.closest('[data-remove-attach
 $('trayCustomizationSection').hidden=!state.settings.trayEnabled;modelsUI();window.addEventListener('beforeunload',persistV3);document.addEventListener('change',saveV3);
 }
 
+/* Fase C: nota riunione "live" creata all'avvio registrazione, alimentata
+   dagli eventi meeting-chunk finché il backend non salva quella definitiva. */
+const LIVE_MEETING_ID = "live-meeting";
+
+function beginLiveMeetingNote() {
+  const hhmm = new Date().toTimeString().slice(0, 5);
+  const n = {
+    id: LIVE_MEETING_ID,
+    kind: "meeting",
+    project: state.settings.defaultProject,
+    customTitle: false,
+    title: "",
+    createdAt: new Date().toISOString(),
+    dateIso: new Date().toISOString().slice(0, 10),
+    dateGroup: "Oggi",
+    dateShort: `Oggi, ${hhmm}`,
+    dateFull: new Date().toLocaleString("it-IT"),
+    durationSec: 0,
+    lang: "AUTO",
+    modelUsed: `${state.settings.model} · Metal`,
+    sourceApp: "👥 Riunione live",
+    pinned: false,
+    passes: [],
+    summaries: {},
+    speakers: [
+      { id: "mic", label: "🎤 Microfono", sourceBadge: "MIC" },
+      { id: "system", label: "💻 Sistema", sourceBadge: "SYS" },
+    ],
+    utterances: [],
+  };
+  state.notes.unshift(n);
+  state.selectedNoteId = n.id;
+  state.activeViewMode = "original";
+  renderAll();
+  return n;
+}
+
 /* Fase A: in Tauri carica le note reali dal DB e resta in ascolto degli eventi;
    in browser puro resta il flusso demo. */
 (async () => {
@@ -2782,6 +2855,40 @@ $('trayCustomizationSection').hidden=!state.settings.trayEnabled;modelsUI();wind
     if (tauriListen) {
       await tauriListen("note-saved", () => {
         loadRealNotes().then(() => renderAll());
+      });
+      // Fase C: utterance live dalla riunione (mic | system)
+      await tauriListen("meeting-chunk", (ev) => {
+        const c = ev.payload || {};
+        if (!c.text) return;
+        let n = state.notes.find((x) => x.id === LIVE_MEETING_ID);
+        if (!n) n = beginLiveMeetingNote();
+        const startMs = Number(c.start_ms) || 0;
+        const wall = new Date((state.meetingStartedAtMs || Date.now()) + startMs);
+        n.utterances.push({
+          id: "u-" + Date.now() + "-" + n.utterances.length,
+          speakerId: c.track === "system" ? "system" : "mic",
+          startSec: Math.round(startMs / 1000),
+          timeLabel: fmtHHMM(wall),
+          text: String(c.text),
+        });
+        n.durationSec = Math.max(
+          n.durationSec,
+          Math.round((Number(c.end_ms) || startMs) / 1000)
+        );
+        state.liveMeetingChunks += 1;
+        if (state.selectedNoteId === LIVE_MEETING_ID) renderAll();
+        else renderNotesList();
+      });
+      // Fase C: permesso Screen Recording mancante — messaggio onesto
+      await tauriListen("meeting-permission", (ev) => {
+        showToast(
+          "Loopback sistema non disponibile: " +
+            (ev.payload || "permesso mancante") +
+            " — concedi Registrazione schermo in Impostazioni › Privacy e riavvia. La riunione continua con il solo microfono."
+        );
+      });
+      await tauriListen("meeting-error", (ev) => {
+        showToast("Errore riunione: " + (ev.payload || "sconosciuto"));
       });
     }
   }
