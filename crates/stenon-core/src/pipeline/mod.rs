@@ -42,8 +42,8 @@ fn now_ms() -> i64 {
 
 /// Segmenti di una traccia di riunione (Fase C).
 pub struct MeetingTrack {
-    pub kind: String,   // "mic" | "system"
-    pub label: String,  // "Microfono" | "Sistema"
+    pub kind: String,  // "mic" | "system"
+    pub label: String, // "Microfono" | "Sistema"
     pub segments: Vec<Segment>,
 }
 
@@ -61,7 +61,14 @@ pub fn save_meeting(
         return Err("nessun segmento da salvare".into());
     }
     let note_id = uuid::Uuid::new_v4().to_string();
-    db.insert_note(&note_id, now_ms(), duration_ms, "riunione", audio_dir, language)?;
+    db.insert_note(
+        &note_id,
+        now_ms(),
+        duration_ms,
+        "riunione",
+        audio_dir,
+        language,
+    )?;
     for t in tracks {
         let track_id = uuid::Uuid::new_v4().to_string();
         db.insert_track(&track_id, &note_id, &t.kind, &t.label)?;

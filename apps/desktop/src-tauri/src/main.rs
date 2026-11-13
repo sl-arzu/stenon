@@ -67,7 +67,7 @@ impl MeetingLive {
 
 /// Trascrive un blocco mono 16 kHz e riallinea i timestamp all'offset del blocco.
 fn transcribe_meeting_chunk(
-    mut transcriber: Option<&mut WhisperTranscriber>,
+    transcriber: Option<&mut WhisperTranscriber>,
     fallback_lang: &str,
     pcm: &[f32],
     offset_ms: i64,
@@ -83,7 +83,6 @@ fn transcribe_meeting_chunk(
     }
     segs
 }
-
 
 struct AppState {
     rec_tx: Sender<RecCommand>,
@@ -253,13 +252,7 @@ fn spawn_recorder(config: Config, app: AppHandle) -> Sender<RecCommand> {
                 None => {
                     // Tick riunione: trascrivi i blocchi pronti per ogni traccia.
                     if let Some(m) = meeting.as_mut() {
-                        meeting_tick(
-                            m,
-                            transcriber.as_mut(),
-                            &language,
-                            &languages,
-                            &app,
-                        );
+                        meeting_tick(m, transcriber.as_mut(), &language, &languages, &app);
                     }
                 }
                 Some(cmd) => handle_command(
@@ -377,7 +370,7 @@ fn handle_command(
             }
         }
         RecCommand::MeetingStop => {
-            let Some(mut m) = meeting.take() else { return };
+            let Some(m) = meeting.take() else { return };
             eprintln!("stenon: riunione fermata, salvo...");
             finish_meeting(m, transcriber, language, languages, app, db_path);
         }
@@ -441,8 +434,13 @@ fn meeting_tick(
         let offset_ms = (m.mic_consumed as i64) * 1000 / (sec_samples as i64);
         m.mic_consumed += take;
         let pcm = to_mono_16k(chunk, rate as u32, ch);
-        let segs =
-            transcribe_meeting_chunk(transcriber.as_deref_mut(), fallback_lang, &pcm, offset_ms, languages);
+        let segs = transcribe_meeting_chunk(
+            transcriber.as_deref_mut(),
+            fallback_lang,
+            &pcm,
+            offset_ms,
+            languages,
+        );
         for s in &segs {
             m.mic_segments.push(s.clone());
             emit_chunk(app, "mic", s);
@@ -463,13 +461,8 @@ fn meeting_tick(
             let offset_ms = (m.sys_consumed as i64) * 1000 / (sec_samples as i64);
             m.sys_consumed += take;
             let pcm = to_mono_16k(chunk, rate as u32, ch);
-            let segs = transcribe_meeting_chunk(
-                transcriber.as_deref_mut(),
-                fallback_lang,
-                &pcm,
-                offset_ms,
-                languages,
-            );
+            let segs =
+                transcribe_meeting_chunk(transcriber, fallback_lang, &pcm, offset_ms, languages);
             for s in &segs {
                 m.sys_segments.push(s.clone());
                 emit_chunk(app, "system", s);

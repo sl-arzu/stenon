@@ -368,7 +368,11 @@ impl Db {
                 if segments.is_empty() {
                     segments = segs.clone();
                 }
-                tracks.push(TrackSegs { kind, label, segments: segs });
+                tracks.push(TrackSegs {
+                    kind,
+                    label,
+                    segments: segs,
+                });
             }
         }
         // Se esiste una modifica manuale (op "edited"), vince sull'ultimo testo:

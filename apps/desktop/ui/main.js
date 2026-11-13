@@ -2881,11 +2881,18 @@ function beginLiveMeetingNote() {
       });
       // Fase C: permesso Screen Recording mancante — messaggio onesto
       await tauriListen("meeting-permission", (ev) => {
-        showToast(
-          "Loopback sistema non disponibile: " +
-            (ev.payload || "permesso mancante") +
-            " — concedi Registrazione schermo in Impostazioni › Privacy e riavvia. La riunione continua con il solo microfono."
-        );
+        const why = String(ev.payload || "");
+        if (why.includes("permission-request")) {
+          showToast(
+            "Ti è apparso il prompt di sistema: clicca \"Apri Impostazioni\" e attiva Stenon in Registrazione schermo, poi riavvia l'app. Finché non lo concedi la riunione registra solo il microfono."
+          );
+        } else if (why.includes("permission")) {
+          showToast(
+            "Loopback sistema: concedi a Stenon il permesso Registrazione schermo (Impostazioni › Privacy e sicurezza) e riavvia l'app. La riunione continua con il solo microfono."
+          );
+        } else {
+          showToast("Loopback sistema non disponibile: " + why + " — riunione con il solo microfono.");
+        }
       });
       await tauriListen("meeting-error", (ev) => {
         showToast("Errore riunione: " + (ev.payload || "sconosciuto"));

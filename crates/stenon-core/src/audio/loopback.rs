@@ -8,7 +8,7 @@
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, ProtocolObject};
-use objc2::{define_class, msg_send, AllocAnyThread, ClassType, DefinedClass};
+use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
 use objc2_core_foundation::CFRetained;
 use objc2_core_media::{CMBlockBuffer, CMSampleBuffer};
 use objc2_foundation::{NSArray, NSError, NSObjectProtocol};
@@ -19,9 +19,13 @@ use objc2_screen_capture_kit::{
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-// Preflight del permesso Registrazione schermo (API C CoreGraphics stabile).
+// Preflight e request del permesso Registrazione schermo (API C CoreGraphics).
+// Il preflight NON registra l'app in TCC: senza una request esplicita Stenon
+// non compare mai nella lista di Impostazioni › Privacy. La request apre il
+// prompt di sistema (una volta sola) e aggiunge l'app alla lista.
 extern "C" {
     fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
 }
 
 #[derive(Debug)]
@@ -84,7 +88,9 @@ fn extract_f32(sample: &CMSampleBuffer) -> Option<Vec<f32>> {
     let bytes = unsafe { std::slice::from_raw_parts(ptr as *const u8, total_out) };
     Some(
         bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect(),
     )
@@ -124,29 +130,35 @@ impl LoopbackCapture {
 }
 
 /// Avvia la cattura dell'audio di sistema.
-/// Err("permission") se manca il permesso Registrazione schermo.
+/// Err("permission-request") se manca il permesso Registrazione schermo:
+/// in tal caso è stato aperto il prompt di sistema che aggiunge Stenon
+/// alla lista (Impostazioni › Privacy e sicurezza › Registrazione schermo).
 pub fn start_loopback() -> Result<LoopbackCapture, String> {
-    // 1. Permesso: preflight C, diagnosi onesta senza prompt implicito.
+    // 1. Permesso: preflight; se assente, request (apre il prompt di sistema
+    //    e registra l'app in TCC) e uscita con codice riconoscibile.
     unsafe {
         if !CGPreflightScreenCaptureAccess() {
-            return Err("permission".to_string());
+            CGRequestScreenCaptureAccess();
+            return Err("permission-request".to_string());
         }
     }
 
     // 2. Contenuto condivisibile: getShareableContent e' async-only,
     //    lo sincronizziamo con un canale.
     let (tx, rx) = mpsc::channel::<Result<Retained<SCShareableContent>, String>>();
-    let block = RcBlock::new(move |content: *mut SCShareableContent, error: *mut NSError| {
-        if error.is_null() && !content.is_null() {
-            let content = unsafe { Retained::retain_autoreleased(content) };
-            let _ = tx.send(match content {
-                Some(c) => Ok(c),
-                None => Err("loopback: contenuto nullo".to_string()),
-            });
-        } else {
-            let _ = tx.send(Err("loopback: contenuto non disponibile".to_string()));
-        }
-    });
+    let block = RcBlock::new(
+        move |content: *mut SCShareableContent, error: *mut NSError| {
+            if error.is_null() && !content.is_null() {
+                let content = unsafe { Retained::retain_autoreleased(content) };
+                let _ = tx.send(match content {
+                    Some(c) => Ok(c),
+                    None => Err("loopback: contenuto nullo".to_string()),
+                });
+            } else {
+                let _ = tx.send(Err("loopback: contenuto non disponibile".to_string()));
+            }
+        },
+    );
     unsafe {
         SCShareableContent::getShareableContentWithCompletionHandler(&block);
     }
@@ -185,12 +197,7 @@ pub fn start_loopback() -> Result<LoopbackCapture, String> {
     let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
     let output = SckAudioOutput::with_buffer(buffer.clone());
     let stream = unsafe {
-        SCStream::initWithFilter_configuration_delegate(
-            SCStream::alloc(),
-            &filter,
-            &config,
-            None,
-        )
+        SCStream::initWithFilter_configuration_delegate(SCStream::alloc(), &filter, &config, None)
     };
     unsafe {
         stream

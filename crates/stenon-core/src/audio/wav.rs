@@ -47,7 +47,10 @@ mod tests {
         assert_eq!(&bytes[8..12], b"WAVE");
         assert_eq!(&bytes[36..40], b"data");
         // 4 campioni * 2 byte
-        assert_eq!(u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]), 8);
+        assert_eq!(
+            u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]),
+            8
+        );
         std::fs::remove_file(&path).ok();
     }
 }
