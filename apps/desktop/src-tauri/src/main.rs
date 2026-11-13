@@ -290,6 +290,11 @@ fn handle_command(
             *language = langs.first().cloned().unwrap_or_else(|| "auto".to_string());
             eprintln!("stenon: lingue ammesse: {:?}", langs);
         }
+        // Hotkey ignorata durante una riunione: evita dettature parallele
+        // che confondono lo stato (la voce va nella riunione, non in note a parte).
+        RecCommand::Start | RecCommand::Stop if meeting.is_some() => {
+            eprintln!("stenon: hotkey ignorata: riunione in corso");
+        }
         RecCommand::Start => {
             eprintln!("stenon: registrazione avviata");
             if capture.is_none() {
