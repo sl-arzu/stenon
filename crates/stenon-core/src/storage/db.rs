@@ -16,6 +16,9 @@ pub struct NoteSummary {
     pub mode: String,
     pub language: String,
     pub preview: String,
+    pub title: Option<String>,
+    pub pinned: bool,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,7 +46,10 @@ CREATE TABLE IF NOT EXISTS notes (
     duration_ms INTEGER NOT NULL DEFAULT 0,
     mode TEXT NOT NULL DEFAULT 'dettatura',
     audio_path TEXT,
-    language TEXT
+    language TEXT,
+    title TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    tags TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS tracks (
     id TEXT PRIMARY KEY,
@@ -69,6 +75,32 @@ CREATE TABLE IF NOT EXISTS versions (
 );
 "#;
 
+/// Migrazione leggera: aggiunge le colonne dei metadati (Fase B) ai database
+/// creati con lo schema della Fase 0. Idempotente.
+fn migrate(conn: &Connection) {
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(notes)")
+        .and_then(|mut s| {
+            s.query_map([], |row| row.get::<_, String>(1))
+                .map(|rows| rows.flatten().collect())
+        })
+        .unwrap_or_default();
+    let alter = |sql: &str| {
+        if let Err(e) = conn.execute_batch(sql) {
+            eprintln!("db: migrazione fallita ({sql}): {e}");
+        }
+    };
+    if !cols.iter().any(|c| c == "title") {
+        alter("ALTER TABLE notes ADD COLUMN title TEXT;");
+    }
+    if !cols.iter().any(|c| c == "pinned") {
+        alter("ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
+    }
+    if !cols.iter().any(|c| c == "tags") {
+        alter("ALTER TABLE notes ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';");
+    }
+}
+
 impl Db {
     /// Apre (o crea) il database al percorso indicato.
     pub fn open(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
@@ -79,6 +111,7 @@ impl Db {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn);
         Ok(Self { conn })
     }
 
@@ -172,7 +205,18 @@ impl Db {
     pub fn list_notes(&self) -> Vec<NoteSummary> {
         let mut stmt = match self
             .conn
-            .prepare("SELECT id, created_at, duration_ms, mode, language FROM notes ORDER BY created_at DESC")
+            .prepare(
+                "SELECT n.id, n.created_at, n.duration_ms, n.mode, n.language, \
+                 n.title, n.pinned, n.tags, \
+                 COALESCE( \
+                   (SELECT v.text FROM versions v \
+                    WHERE v.note_id = n.id AND v.op = 'edited' \
+                    ORDER BY v.created_at DESC LIMIT 1), \
+                   (SELECT group_concat(s.text, ' ') FROM segments s \
+                    JOIN tracks t ON s.track_id = t.id WHERE t.note_id = n.id) \
+                 ) AS body \
+                 FROM notes n ORDER BY n.created_at DESC",
+            )
         {
             Ok(s) => s,
             Err(_) => return Vec::new(),
@@ -184,17 +228,75 @@ impl Db {
                 let duration_ms: i64 = row.get(2)?;
                 let mode: String = row.get(3)?;
                 let language: String = row.get::<_, Option<String>>(4)?.unwrap_or_default();
+                let title: Option<String> = row
+                    .get::<_, Option<String>>(5)?
+                    .filter(|t| !t.trim().is_empty());
+                let pinned: bool = row.get::<_, Option<i64>>(6)?.unwrap_or(0) != 0;
+                let tags: Vec<String> =
+                    serde_json::from_str(&row.get::<_, Option<String>>(7)?.unwrap_or_default())
+                        .unwrap_or_default();
+                // preview: testo completo (le note di dettatura sono brevi);
+                // serve alla ricerca del frontend senza idratare ogni nota.
+                let body: Option<String> = row.get(8)?;
+                let mut preview = body.unwrap_or_default();
+                preview.truncate(4000);
                 Ok(NoteSummary {
                     id,
                     created_at,
                     duration_ms,
                     mode,
                     language,
-                    preview: String::new(),
+                    preview,
+                    title,
+                    pinned,
+                    tags,
                 })
             })
             .unwrap_or_else(|_| panic!("list_notes: query_map"));
         rows.filter_map(|r| r.ok()).collect()
+    }
+
+    /// Aggiorna i metadati di una nota (Fase B: titolo, pin, tag).
+    /// `None` = lascia invariato il valore attuale.
+    pub fn update_note_meta(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        pinned: Option<bool>,
+        tags: Option<&str>,
+    ) -> bool {
+        let mut ok = true;
+        if let Some(t) = title {
+            ok &= self
+                .conn
+                .execute(
+                    "UPDATE notes SET title = ?1 WHERE id = ?2",
+                    rusqlite::params![t, id],
+                )
+                .map(|n| n > 0)
+                .unwrap_or(false);
+        }
+        if let Some(p) = pinned {
+            ok &= self
+                .conn
+                .execute(
+                    "UPDATE notes SET pinned = ?1 WHERE id = ?2",
+                    rusqlite::params![p as i64, id],
+                )
+                .map(|n| n > 0)
+                .unwrap_or(false);
+        }
+        if let Some(tg) = tags {
+            ok &= self
+                .conn
+                .execute(
+                    "UPDATE notes SET tags = ?1 WHERE id = ?2",
+                    rusqlite::params![tg, id],
+                )
+                .map(|n| n > 0)
+                .unwrap_or(false);
+        }
+        ok
     }
 
     /// Dettaglio di una nota: testo puro della trascrizione e segmenti.

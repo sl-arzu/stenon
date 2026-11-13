@@ -45,6 +45,25 @@ fn update_note_text(id: String, text: String, state: State<AppState>) -> bool {
     state.db.lock().unwrap().update_note_text(&id, &text)
 }
 
+/// Metadati della nota (Fase B): titolo personalizzato, pin, tag.
+/// Campi `None` = lasciano invariato il valore attuale.
+#[tauri::command]
+fn update_note_meta(
+    id: String,
+    title: Option<String>,
+    pinned: Option<bool>,
+    tags: Option<Vec<String>>,
+    state: State<AppState>,
+) -> bool {
+    let tags_json = tags
+        .map(|t| serde_json::to_string(&t).unwrap_or_else(|_| "[]".to_string()));
+    state
+        .db
+        .lock()
+        .unwrap()
+        .update_note_meta(&id, title.as_deref(), pinned, tags_json.as_deref())
+}
+
 /// Imposta le lingue di trascrizione ammesse a runtime.
 /// Lista vuota (o contenente "auto") = rilevamento libero tra tutte le lingue.
 #[tauri::command]
@@ -226,6 +245,7 @@ fn main() {
             get_note,
             delete_note,
             update_note_text,
+            update_note_meta,
             save_note,
             set_languages
         ])

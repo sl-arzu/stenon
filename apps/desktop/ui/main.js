@@ -32,6 +32,7 @@ const TAURI_COMMANDS = {
   SAVE_VOCABULARY: "save_vocabulary",
   SAVE_SETTINGS: "save_settings",
   UPDATE_NOTE_TEXT: "update_note_text",
+  UPDATE_NOTE_META: "update_note_meta",
   SET_LANGUAGES: "set_languages",
 };
 
@@ -114,7 +115,11 @@ function mapSummaryToCard(s) {
     lang: (s.language || "auto").toUpperCase(),
     modelUsed: "whisper base",
     sourceApp: "",
-    pinned: false,
+    preview: s.preview || "",
+    title: s.title || "",
+    customTitle: !!s.title,
+    pinned: !!s.pinned,
+    manualTags: Array.isArray(s.tags) ? s.tags : [],
     passes: [], // riempite da hydrateNote (get_note)
   };
 }
@@ -482,14 +487,17 @@ function getNotePlainTranscript(note) {
       })
       .join("\n");
   }
-  return (note.passes || []).map((p) => p.text.trim()).filter(Boolean).join("\n\n");
+  // fallback al preview del DB: permette ricerca e titoli anche senza idratare
+  const t = (note.passes || []).map((p) => p.text.trim()).filter(Boolean).join("\n\n");
+  return t || note.preview || "";
 }
 
 function getNoteRawBodyOnly(note) {
   if (note.kind === "meeting") {
     return (note.utterances || []).map((u) => u.text.trim()).join(" ");
   }
-  return (note.passes || []).map((p) => p.text.trim()).filter(Boolean).join("\n\n");
+  const t = (note.passes || []).map((p) => p.text.trim()).filter(Boolean).join("\n\n");
+  return t || note.preview || "";
 }
 
 function computeAutoTitle(text, lang = "IT") {
@@ -1703,6 +1711,13 @@ function triggerAutosaveIndicator(note) {
   autosaveTimeout = setTimeout(() => {
     persistV3();
     callBackend(TAURI_COMMANDS.SAVE_NOTE, { note });
+    // Fase B: persisti anche i metadati (titolo personalizzato, pin, tag)
+    callBackend(TAURI_COMMANDS.UPDATE_NOTE_META, {
+      id: note.id,
+      title: note.customTitle ? note.title : "",
+      pinned: !!note.pinned,
+      tags: note.manualTags || [],
+    });
     el.autosaveIndicator.classList.remove("is-saving");
     el.autosaveText.textContent = "Salvato";
   }, 350);
@@ -2159,7 +2174,14 @@ function bindEvents() {
       const act = actionBtn.dataset.cardAction;
       if (act === "pin") {
         const n = state.notes.find((x) => x.id === id);
-        if (n) n.pinned = !n.pinned;
+        if (n) {
+          n.pinned = !n.pinned;
+          // Fase B: il pin persiste nel DB
+          callBackend(TAURI_COMMANDS.UPDATE_NOTE_META, {
+            id: n.id,
+            pinned: !!n.pinned,
+          });
+        }
         renderAll();
       } else if (act === "ask-delete") {
         state.pendingDeleteCardId = id;
@@ -2246,6 +2268,8 @@ function bindEvents() {
     note.title = "";
     updateDetailMetadata(note);
     renderNotesList();
+    // Fase B: il titolo torna automatico anche nel DB
+    triggerAutosaveIndicator(note);
   });
 
   el.passesEditor.addEventListener("input", (e) => {
